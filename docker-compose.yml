@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # 1. Ollama服务 - 提供LLM能力
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-assistant-ollama
+    volumes:
+      - ./data/ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
+  # 2. 语音识别服务 (STT) - 使用Whisper
+  stt-service:
+    build:
+      context: ./services/stt
+      dockerfile: Dockerfile
+    container_name: ai-assistant-stt
+    volumes:
+      - ./data/audio:/app/audio
+    ports:
+      - "8000:8000"  # ESP32录音上传端口
+    depends_on:
+      - ollama
+    environment:
+      - WHISPER_MODEL=base
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
+  # 3. 语音合成服务 (TTS)
+  tts-service:
+    build:
+      context: ./services/tts
+      dockerfile: Dockerfile
+    container_name: ai-assistant-tts
+    volumes:
+      - ./data/audio:/app/audio
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
+  # 4. IoT控制服务
+  iot-control:
+    build:
+      context: ./services/iot
+      dockerfile: Dockerfile
+    container_name: ai-assistant-iot
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
+  # 5. 主协调服务 - 处理所有服务间通信
+  coordinator:
+    build:
+      context: ./services/coordinator
+      dockerfile: Dockerfile
+    container_name: ai-assistant-coordinator
+    ports:
+      - "8080:8080"  # HTTP/WebSocket服务
+    depends_on:
+      - ollama
+      - stt-service
+      - tts-service
+      - iot-control
+    volumes:
+      - ./data:/app/data
+    environment:
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_MODEL=llama3:8b
+      - STT_HOST=stt-service
+      - STT_PORT=8000
+      - TTS_HOST=tts-service
+      - TTS_PORT=8001
+      - IOT_HOST=iot-control
+      - IOT_PORT=8002
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
+networks:
+  ai-assistant-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
