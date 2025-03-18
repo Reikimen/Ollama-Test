@@ -1,16 +1,16 @@
-// Ollama模型管理模块
+// Ollama model management module
 
-// 检查Ollama可用模型
+// Check available Ollama models
 async function checkOllamaModels() {
     const outputArea = document.getElementById('models-output');
-    outputArea.innerHTML = '正在获取模型列表...';
+    outputArea.innerHTML = 'Getting model list...';
     
     try {
         const response = await fetch(`${API_URLS.ollama}/api/tags`);
         const data = await response.json();
         
         if (response.ok) {
-            let output = '<div class="console-output"><strong>可用模型：</strong><br>';
+            let output = '<div class="console-output"><strong>Available Models:</strong><br>';
             
             if (data.models && data.models.length > 0) {
                 data.models.forEach((model, index) => {
@@ -22,30 +22,30 @@ async function checkOllamaModels() {
                     output += '<br>';
                 });
             } else {
-                output += '<span class="error">没有找到模型</span><br>';
+                output += '<span class="error">No models found</span><br>';
             }
             
             output += '</div>';
             outputArea.innerHTML = output;
         } else {
-            outputArea.innerHTML = `<div class="console-output error">获取模型失败: ${data.error || '未知错误'}</div>`;
+            outputArea.innerHTML = `<div class="console-output error">Failed to get models: ${data.error || 'Unknown error'}</div>`;
         }
     } catch (error) {
-        outputArea.innerHTML = `<div class="console-output error">请求出错: ${error.message}</div>`;
+        outputArea.innerHTML = `<div class="console-output error">Request error: ${error.message}</div>`;
     }
 }
 
-// 拉取Ollama模型
+// Pull Ollama model
 async function pullOllamaModel() {
     const modelName = document.getElementById('model-name').value.trim();
     const outputArea = document.getElementById('models-output');
     
     if (!modelName) {
-        outputArea.innerHTML = '<div class="console-output error">请输入模型名称</div>';
+        outputArea.innerHTML = '<div class="console-output error">Please enter a model name</div>';
         return;
     }
     
-    outputArea.innerHTML = `<div class="console-output">正在拉取模型 <strong>${modelName}</strong>...<br>这可能需要几分钟时间，请耐心等待...</div>`;
+    outputArea.innerHTML = `<div class="console-output">Pulling model <strong>${modelName}</strong>...<br>This may take several minutes, please be patient...</div>`;
     
     try {
         const response = await fetch(`${API_URLS.ollama}/api/pull`, {
@@ -59,13 +59,13 @@ async function pullOllamaModel() {
         const data = await response.json();
         
         if (response.ok) {
-            outputArea.innerHTML = `<div class="console-output success">模型 <strong>${modelName}</strong> 已成功拉取！</div>`;
-            // 刷新模型列表
+            outputArea.innerHTML = `<div class="console-output success">Model <strong>${modelName}</strong> has been successfully pulled!</div>`;
+            // Refresh model list
             setTimeout(checkOllamaModels, 1000);
         } else {
-            outputArea.innerHTML = `<div class="console-output error">拉取模型失败: ${data.error || '未知错误'}</div>`;
+            outputArea.innerHTML = `<div class="console-output error">Failed to pull model: ${data.error || 'Unknown error'}</div>`;
         }
     } catch (error) {
-        outputArea.innerHTML = `<div class="console-output error">请求出错: ${error.message}</div>`;
+        outputArea.innerHTML = `<div class="console-output error">Request error: ${error.message}</div>`;
     }
 }

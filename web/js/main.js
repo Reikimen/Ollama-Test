@@ -1,18 +1,18 @@
-// 主程序入口文件
+// Main program entry point
 
-// DOM加载完成后执行
+// DOM loaded event
 document.addEventListener('DOMContentLoaded', function() {
-    // Ollama模型管理
+    // Ollama model management
     document.getElementById('check-models').addEventListener('click', checkOllamaModels);
     document.getElementById('pull-model').addEventListener('click', pullOllamaModel);
     
-    // 服务状态检查
+    // Service status check
     document.getElementById('check-coordinator').addEventListener('click', () => checkServiceStatus('coordinator'));
     document.getElementById('check-stt').addEventListener('click', () => checkServiceStatus('stt'));
     document.getElementById('check-tts').addEventListener('click', () => checkServiceStatus('tts'));
     document.getElementById('check-iot').addEventListener('click', () => checkServiceStatus('iot'));
     
-    // AI交互
+    // AI interaction
     document.getElementById('send-text').addEventListener('click', sendTextToAI);
     document.getElementById('clear-chat').addEventListener('click', clearChat);
     document.getElementById('user-input').addEventListener('keypress', function(e) {
@@ -22,18 +22,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // IoT设备控制
+    // IoT device control
     document.getElementById('send-command').addEventListener('click', sendIoTCommand);
     document.getElementById('get-devices').addEventListener('click', getAllDevices);
     
-    // 设备类型切换时更新动作下拉菜单
+    // Device type change updates action dropdown
     document.getElementById('device-type').addEventListener('change', updateActionDropdown);
     
-    // 语音合成
+    // Text-to-speech
     document.getElementById('synthesize-speech').addEventListener('click', synthesizeSpeech);
     document.getElementById('get-voices').addEventListener('click', getAvailableVoices);
     
-    // WebSocket交互
+    // WebSocket interaction
     document.getElementById('ws-connect').addEventListener('click', connectWebSocket);
     document.getElementById('ws-disconnect').addEventListener('click', disconnectWebSocket);
     document.getElementById('ws-send').addEventListener('click', sendWebSocketMessage);
@@ -44,9 +44,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // 初始化
+    // Initialize
     updateActionDropdown();
     
-    // 显示欢迎消息
-    console.log('AI语音助手控制面板已加载完成');
+    // Display welcome message
+    console.log('AI Voice Assistant Control Panel loaded');
 });

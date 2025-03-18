@@ -10,14 +10,14 @@ import uvicorn
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# 环境变量
+# Environment variables
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/config/devices.json")
 MQTT_ENABLED = os.getenv("MQTT_ENABLED", "false").lower() == "true"
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mqtt_broker")
@@ -25,10 +25,10 @@ MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 
-# 创建FastAPI应用
-app = FastAPI(title="IoT控制服务")
+# Create FastAPI application
+app = FastAPI(title="IoT Control Service")
 
-# 配置CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,28 +37,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 连接的ESP32设备
+# Connected ESP32 devices
 connected_devices = {}
 
-# 设备状态
+# Device states
 device_states = {
     "light": {
-        "客厅": {"status": "off", "brightness": 50},
-        "卧室": {"status": "off", "brightness": 50},
-        "厨房": {"status": "off", "brightness": 50},
-        "书房": {"status": "off", "brightness": 50}
+        "living room": {"status": "off", "brightness": 50},
+        "bedroom": {"status": "off", "brightness": 50},
+        "kitchen": {"status": "off", "brightness": 50},
+        "study": {"status": "off", "brightness": 50}
     },
     "fan": {
-        "客厅": {"status": "off", "speed": 1},
-        "卧室": {"status": "off", "speed": 1}
+        "living room": {"status": "off", "speed": 1},
+        "bedroom": {"status": "off", "speed": 1}
     },
     "ac": {
-        "客厅": {"status": "off", "temperature": 26, "mode": "cool"},
-        "卧室": {"status": "off", "temperature": 26, "mode": "cool"}
+        "living room": {"status": "off", "temperature": 26, "mode": "cool"},
+        "bedroom": {"status": "off", "temperature": 26, "mode": "cool"}
     },
     "curtain": {
-        "客厅": {"status": "closed"},
-        "卧室": {"status": "closed"}
+        "living room": {"status": "closed"},
+        "bedroom": {"status": "closed"}
     }
 }
 
@@ -73,20 +73,20 @@ class IoTControlRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "IoT控制服务运行中"}
+    return {"message": "IoT Control Service is running"}
 
 @app.get("/devices")
 async def get_devices():
-    """获取所有设备状态"""
+    """Get all device states"""
     return {"devices": device_states}
 
 @app.get("/device/{device_type}/{location}")
 async def get_device_status(device_type: str, location: str):
-    """获取特定设备的状态"""
+    """Get specific device status"""
     if device_type not in device_states or location not in device_states[device_type]:
         return JSONResponse(
             status_code=404,
-            content={"error": f"设备不存在: {device_type} at {location}"}
+            content={"error": f"Device does not exist: {device_type} at {location}"}
         )
     
     return {
@@ -97,7 +97,7 @@ async def get_device_status(device_type: str, location: str):
 
 @app.post("/control")
 async def control_devices(request: IoTControlRequest):
-    """控制IoT设备"""
+    """Control IoT devices"""
     results = []
     
     for cmd in request.commands:
@@ -110,45 +110,45 @@ async def control_devices(request: IoTControlRequest):
             if not all([device, action, location]):
                 results.append({
                     "status": "error",
-                    "message": "缺少必要参数",
+                    "message": "Missing required parameters",
                     "command": cmd
                 })
                 continue
             
-            # 检查设备是否存在
+            # Check if device exists
             if device not in device_states or location not in device_states[device]:
                 results.append({
                     "status": "error",
-                    "message": f"设备不存在: {device} at {location}",
+                    "message": f"Device does not exist: {device} at {location}",
                     "command": cmd
                 })
                 continue
             
-            # 执行控制命令
+            # Execute control command
             result = await execute_command(device, action, location, parameters)
             results.append(result)
             
-            # 如果启用了MQTT，发送控制命令
+            # If MQTT is enabled, send control command
             if MQTT_ENABLED:
                 await send_mqtt_command(device, action, location, parameters)
             
         except Exception as e:
-            logger.error(f"执行命令出错: {str(e)}")
+            logger.error(f"Error executing command: {str(e)}")
             results.append({
                 "status": "error",
-                "message": f"执行命令出错: {str(e)}",
+                "message": f"Error executing command: {str(e)}",
                 "command": cmd
             })
     
     return {"results": results}
 
 async def execute_command(device, action, location, parameters):
-    """执行设备控制命令"""
+    """Execute device control command"""
     try:
-        # 获取当前设备状态
+        # Get current device state
         current_state = device_states[device][location]
         
-        # 根据设备类型和动作执行不同操作
+        # Execute different operations based on device type and action
         if device == "light":
             if action == "on":
                 current_state["status"] = "on"
@@ -216,10 +216,10 @@ async def execute_command(device, action, location, parameters):
             elif action == "off" or action == "close":
                 current_state["status"] = "closed"
         
-        # 更新设备状态
+        # Update device state
         device_states[device][location] = current_state
         
-        # 向已连接的设备发送更新
+        # Broadcast update to connected devices
         await broadcast_device_update(device, location)
         
         return {
@@ -231,17 +231,17 @@ async def execute_command(device, action, location, parameters):
         }
     
     except Exception as e:
-        logger.error(f"执行命令出错: {str(e)}")
+        logger.error(f"Error executing command: {str(e)}")
         return {
             "status": "error",
-            "message": f"执行命令出错: {str(e)}",
+            "message": f"Error executing command: {str(e)}",
             "device": device,
             "location": location,
             "action": action
         }
 
 async def broadcast_device_update(device, location):
-    """广播设备状态更新到所有连接的WebSocket客户端"""
+    """Broadcast device state update to all connected WebSocket clients"""
     if not connected_devices:
         return
     
@@ -256,22 +256,22 @@ async def broadcast_device_update(device, location):
         try:
             await websocket.send_json(message)
         except Exception as e:
-            logger.error(f"WebSocket发送失败: {str(e)}")
+            logger.error(f"WebSocket send failed: {str(e)}")
 
 async def send_mqtt_command(device, action, location, parameters):
-    """通过MQTT发送设备控制命令"""
+    """Send device control command via MQTT"""
     if not MQTT_ENABLED:
         return
     
     try:
         import paho.mqtt.client as mqtt
         
-        # MQTT配置
+        # MQTT configuration
         client = mqtt.Client()
         if MQTT_USER and MQTT_PASSWORD:
             client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
         
-        # 创建消息
+        # Create message
         topic = f"iot/{device}/{location}"
         payload = {
             "action": action,
@@ -279,34 +279,34 @@ async def send_mqtt_command(device, action, location, parameters):
             "timestamp": time.time()
         }
         
-        # 转换为JSON
+        # Convert to JSON
         message = json.dumps(payload)
         
-        # 连接并发布
+        # Connect and publish
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(topic, message)
         client.disconnect()
         
-        logger.info(f"已发送MQTT命令: {topic} - {message}")
+        logger.info(f"MQTT command sent: {topic} - {message}")
     
     except Exception as e:
-        logger.error(f"MQTT发送失败: {str(e)}")
+        logger.error(f"MQTT send failed: {str(e)}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket连接处理"""
+    """WebSocket connection handler"""
     await websocket.accept()
     client_id = id(websocket)
     connected_devices[client_id] = websocket
     
     try:
-        # 发送当前所有设备状态
+        # Send current device states
         await websocket.send_json({
             "type": "init",
             "devices": device_states
         })
         
-        # 持续监听命令
+        # Continuously listen for commands
         while True:
             data = await websocket.receive_text()
             try:
@@ -314,7 +314,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 command_type = message.get("type")
                 
                 if command_type == "control":
-                    # 处理控制命令
+                    # Process control commands
                     commands = message.get("commands", [])
                     results = []
                     
@@ -334,7 +334,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                 
                 elif command_type == "get_status":
-                    # 获取特定设备状态
+                    # Get specific device status
                     device = message.get("device")
                     location = message.get("location")
                     
@@ -348,19 +348,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     else:
                         await websocket.send_json({
                             "type": "error",
-                            "message": "设备未找到"
+                            "message": "Device not found"
                         })
                 
                 else:
                     await websocket.send_json({
                         "type": "error",
-                        "message": "未知命令类型"
+                        "message": "Unknown command type"
                     })
             
             except json.JSONDecodeError:
                 await websocket.send_json({
                     "type": "error",
-                    "message": "无效的JSON格式"
+                    "message": "Invalid JSON format"
                 })
     
     except WebSocketDisconnect:
@@ -368,32 +368,32 @@ async def websocket_endpoint(websocket: WebSocket):
             del connected_devices[client_id]
     
     except Exception as e:
-        logger.error(f"WebSocket错误: {str(e)}")
+        logger.error(f"WebSocket error: {str(e)}")
         if client_id in connected_devices:
             del connected_devices[client_id]
 
-# 模拟ESP32状态更新
+# Simulate device state updates
 async def simulate_device_updates():
-    """模拟设备状态更新（用于测试）"""
+    """Simulate device state updates (for testing)"""
     while True:
-        await asyncio.sleep(60)  # 每分钟更新一次
+        await asyncio.sleep(60)  # Update every minute
         
-        # 模拟温度波动
+        # Simulate temperature fluctuation
         for location in device_states["ac"]:
             if device_states["ac"][location]["status"] == "on":
-                # 随机温度波动 ±0.5°C
+                # Random temperature fluctuation ±0.5°C
                 import random
                 current_temp = device_states["ac"][location]["temperature"]
                 new_temp = max(16, min(30, current_temp + random.uniform(-0.5, 0.5)))
                 device_states["ac"][location]["temperature"] = round(new_temp, 1)
                 
-                # 广播更新
+                # Broadcast update
                 await broadcast_device_update("ac", location)
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时的事件处理"""
-    # 启动模拟更新任务
+    """Event handler for application startup"""
+    # Start simulation task
     asyncio.create_task(simulate_device_updates())
 
 if __name__ == "__main__":

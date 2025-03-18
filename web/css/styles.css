@@ -1,4 +1,4 @@
-/* 全局样式 */
+/* Global styles */
 body {
     background-color: #f8f9fa;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -8,7 +8,7 @@ body {
     max-width: 1200px;
 }
 
-/* 卡片样式 */
+/* Card styles */
 .card {
     border-radius: 10px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -25,7 +25,7 @@ body {
     border-bottom: 1px solid #dee2e6;
 }
 
-/* 输出区域样式 */
+/* Output area styles */
 .output-area {
     background-color: #f8f9fa;
     border: 1px solid #dee2e6;
@@ -39,7 +39,7 @@ body {
     word-break: break-all;
 }
 
-/* 聊天区域样式 */
+/* Chat area styles */
 .chat-area {
     background-color: #fff;
     border: 1px solid #dee2e6;
@@ -71,7 +71,7 @@ body {
     margin: 0;
 }
 
-/* 按钮样式 */
+/* Button styles */
 .btn {
     border-radius: 5px;
     font-weight: 500;
@@ -83,7 +83,7 @@ body {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* 控制台输出样式 */
+/* Console output styles */
 .console-output {
     background-color: #2d2d2d;
     border-radius: 5px;
@@ -100,7 +100,7 @@ body {
     color: #dc3545;
 }
 
-/* 响应式调整 */
+/* Responsive adjustments */
 @media (max-width: 768px) {
     .card {
         margin-bottom: 15px;

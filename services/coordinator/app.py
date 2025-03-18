@@ -11,14 +11,14 @@ import uvicorn
 import requests
 from pydantic import BaseModel
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# 环境变量配置
+# Environment variable configuration
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
 OLLAMA_PORT = os.getenv("OLLAMA_PORT", "11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
@@ -29,10 +29,10 @@ TTS_PORT = os.getenv("TTS_PORT", "8001")
 IOT_HOST = os.getenv("IOT_HOST", "iot-control")
 IOT_PORT = os.getenv("IOT_PORT", "8002")
 
-# 创建FastAPI应用
-app = FastAPI(title="AI语音助手协调服务")
+# Create FastAPI application
+app = FastAPI(title="AI Voice Assistant Coordinator Service")
 
-# 配置CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 连接的客户端
+# Connected clients
 connected_clients = {}
 
 class AudioRequest(BaseModel):
@@ -52,13 +52,13 @@ class TextRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "AI语音助手协调服务运行中"}
+    return {"message": "AI Voice Assistant Coordinator Service is running"}
 
 @app.post("/process_audio")
 async def process_audio(request: AudioRequest):
-    """处理音频并返回AI响应"""
+    """Process audio and return AI response"""
     try:
-        # 1. 发送音频到STT服务
+        # 1. Send audio to STT service
         audio_path = request.audio_path
         stt_url = f"http://{STT_HOST}:{STT_PORT}/transcribe"
         stt_response = requests.post(stt_url, json={"audio_path": audio_path})
@@ -68,38 +68,38 @@ async def process_audio(request: AudioRequest):
         if not transcription:
             return JSONResponse(
                 status_code=400,
-                content={"error": "无法识别音频内容"}
+                content={"error": "Unable to recognize audio content"}
             )
         
-        # 2. 发送文本到Ollama处理
+        # 2. Send text to Ollama for processing
         response = await process_text_with_llm(transcription)
         
         return response
     
     except Exception as e:
-        logger.error(f"处理音频时出错: {str(e)}")
+        logger.error(f"Error processing audio: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"处理请求时出错: {str(e)}"}
+            content={"error": f"Error processing request: {str(e)}"}
         )
 
 @app.post("/process_text")
 async def process_text(request: TextRequest):
-    """处理文本输入并返回AI响应"""
+    """Process text input and return AI response"""
     try:
         response = await process_text_with_llm(request.text)
         return response
     
     except Exception as e:
-        logger.error(f"处理文本时出错: {str(e)}")
+        logger.error(f"Error processing text: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"处理请求时出错: {str(e)}"}
+            content={"error": f"Error processing request: {str(e)}"}
         )
 
 async def process_text_with_llm(text_input):
-    """将文本发送到LLM并处理响应"""
-    # 1. 发送文本到Ollama
+    """Send text to LLM and process response"""
+    # 1. Send text to Ollama
     ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
     ollama_payload = {
         "model": OLLAMA_MODEL,
@@ -112,28 +112,28 @@ async def process_text_with_llm(text_input):
     
     ai_text_response = ollama_response.json().get("response", "")
     
-    # 2. 检查是否需要IoT控制
+    # 2. Check if IoT control is needed
     iot_commands = extract_iot_commands(text_input, ai_text_response)
     
     if iot_commands:
-        # 发送到IoT控制服务
+        # Send to IoT control service
         iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
         iot_response = requests.post(iot_url, json={"commands": iot_commands})
         iot_result = iot_response.json() if iot_response.status_code == 200 else {"status": "error"}
     else:
         iot_result = {"status": "no_commands"}
     
-    # 3. 确定表情动作
+    # 3. Determine expression/emotion
     expression = determine_expression(text_input, ai_text_response)
     
-    # 4. 发送AI回复到TTS生成语音
+    # 4. Send AI reply to TTS to generate speech
     tts_url = f"http://{TTS_HOST}:{TTS_PORT}/synthesize"
     tts_response = requests.post(tts_url, json={"text": ai_text_response})
     tts_response.raise_for_status()
     
     audio_file_path = tts_response.json().get("audio_path", "")
     
-    # 返回完整响应
+    # Return complete response
     return {
         "input_text": text_input,
         "ai_response": ai_text_response,
@@ -144,59 +144,114 @@ async def process_text_with_llm(text_input):
     }
 
 def add_system_instructions(user_input):
-    """添加系统指令到用户输入"""
-    system_prompt = """你是一个友好的AI语音助手，能够回答问题并控制智能家居设备。如果用户请求控制设备，请在回复中明确说明你将执行的操作，例如"好的，我将打开（关闭）客厅的灯"。
+    """Add system instructions to user input"""
+    # First, get current device status
+    try:
+        iot_url = f"http://{IOT_HOST}:{IOT_PORT}/devices"
+        iot_response = requests.get(iot_url)
+        if iot_response.status_code == 200:
+            device_states = iot_response.json().get("devices", {})
+            # Convert device states to human readable format
+            device_status_text = format_device_states(device_states)
+        else:
+            device_status_text = "Unable to retrieve current device status."
+    except Exception as e:
+        logger.error(f"Error getting device status: {str(e)}")
+        device_status_text = "Unable to retrieve current device status due to an error."
     
-    可控制的设备包括：
-    - 灯光 (开/关/调亮/调暗)
-    - 风扇 (开/关/调速)
-    - 空调 (开/关/调温/模式)
-    - 窗帘 (开/关)
+    system_prompt = f"""You are a friendly AI voice assistant, capable of answering questions and controlling smart home devices. If a user requests to control a device, please clearly state the action you will perform in your response, for example, "Okay, I'll turn on/off the living room light."
     
-    请保持简短友好的回复风格，并准确理解用户的控制意图。
+    Current device status:
+    {device_status_text}
+    
+    Controllable devices include:
+    - Lights (on/off/brighten/dim)
+    - Fans (on/off/speed)
+    - Air conditioners (on/off/temperature/mode)
+    - Curtains (open/close)
+    
+    Please maintain a brief, friendly response style and accurately understand the user's control intentions. When asked about device status, provide the current status from the information above.
     """
-    return f"{system_prompt}\n\n用户: {user_input}\n助手:"
+    return f"{system_prompt}\n\nUser: {user_input}\nAssistant:"
+
+def format_device_states(device_states):
+    """Format device states into human-readable text"""
+    result = []
+    
+    # Process lights
+    if "light" in device_states:
+        for location, state in device_states["light"].items():
+            status = "ON" if state.get("status") == "on" else "OFF"
+            brightness = state.get("brightness", 0)
+            result.append(f"- Light ({location}): {status}, Brightness: {brightness}%")
+    
+    # Process fans
+    if "fan" in device_states:
+        for location, state in device_states["fan"].items():
+            status = "ON" if state.get("status") == "on" else "OFF"
+            speed = state.get("speed", 0)
+            result.append(f"- Fan ({location}): {status}, Speed: {speed}")
+    
+    # Process air conditioners
+    if "ac" in device_states:
+        for location, state in device_states["ac"].items():
+            status = "ON" if state.get("status") == "on" else "OFF"
+            temp = state.get("temperature", 0)
+            mode = state.get("mode", "unknown")
+            result.append(f"- AC ({location}): {status}, Temperature: {temp}°C, Mode: {mode}")
+    
+    # Process curtains
+    if "curtain" in device_states:
+        for location, state in device_states["curtain"].items():
+            status = state.get("status", "unknown")
+            result.append(f"- Curtain ({location}): {status}")
+    
+    return "\n".join(result)
 
 def extract_iot_commands(user_input, ai_response):
-    """从用户输入和AI响应中提取IoT控制命令"""
-    # 简单的关键词匹配，实际可使用更复杂的NLU
+    """Extract IoT control commands from user input and AI response"""
+    # Simple keyword matching, can use more complex NLU in practice
     commands = []
     
-    # 检查关键词
+    # Check keywords
     keywords = {
-        "灯": "light",
-        "风扇": "fan",
-        "空调": "ac",
-        "窗帘": "curtain"
+        "light": "light",
+        "lights": "light",
+        "lamp": "light",
+        "fan": "fan",
+        "air conditioner": "ac",
+        "ac": "ac",
+        "curtain": "curtain",
+        "curtains": "curtain"
     }
     
     actions = {
-        "开": "on",
-        "打开": "on",
-        "关": "off",
-        "关闭": "off",
-        "调亮": "brighten",
-        "调暗": "dim",
-        "升温": "temp_up",
-        "降温": "temp_down"
+        "on": "on",
+        "turn on": "on",
+        "off": "off",
+        "turn off": "off",
+        "brighten": "brighten",
+        "dim": "dim",
+        "increase temperature": "temp_up",
+        "decrease temperature": "temp_down"
     }
     
-    # 位置关键词
-    locations = ["客厅", "卧室", "厨房", "书房"]
+    # Location keywords
+    locations = ["living room", "bedroom", "kitchen", "study"]
     
     for keyword, device in keywords.items():
-        if keyword in user_input:
-            # 确定位置
-            location = "客厅"  # 默认位置
+        if keyword in user_input.lower():
+            # Determine location
+            location = "living room"  # Default location
             for loc in locations:
-                if loc in user_input:
+                if loc in user_input.lower():
                     location = loc
                     break
             
-            # 确定动作
-            action = "on"  # 默认动作
+            # Determine action
+            action = "on"  # Default action
             for act_key, act_val in actions.items():
-                if act_key in user_input:
+                if act_key in user_input.lower():
                     action = act_val
                     break
             
@@ -209,22 +264,22 @@ def extract_iot_commands(user_input, ai_response):
     return commands
 
 def determine_expression(user_input, ai_response):
-    """根据对话内容决定表情动作"""
-    # 简单的关键词匹配
-    if any(word in user_input for word in ["谢谢", "感谢"]):
+    """Determine expression/emotion based on conversation content"""
+    # Simple keyword matching
+    if any(word in user_input.lower() for word in ["thank", "thanks", "grateful"]):
         return "smile"
-    elif any(word in user_input for word in ["什么", "怎么", "为什么", "如何"]):
+    elif any(word in user_input.lower() for word in ["what", "how", "why", "explain"]):
         return "thinking"
-    elif any(word in ai_response for word in ["抱歉", "对不起"]):
+    elif any(word in ai_response.lower() for word in ["sorry", "apologize", "regret"]):
         return "sad"
-    elif any(word in user_input for word in ["惊讶", "哇", "厉害"]):
+    elif any(word in user_input.lower() for word in ["surprise", "wow", "amazing"]):
         return "surprised"
     else:
         return "neutral"
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket连接处理"""
+    """WebSocket connection handler"""
     await websocket.accept()
     client_id = id(websocket)
     connected_clients[client_id] = websocket
@@ -237,28 +292,28 @@ async def websocket_endpoint(websocket: WebSocket):
                 message_type = message.get("type")
                 
                 if message_type == "text":
-                    # 处理文本消息
+                    # Process text message
                     response = await process_text_with_llm(message.get("text", ""))
                     await websocket.send_json(response)
                 
                 elif message_type == "audio_ready":
-                    # 处理音频就绪通知
+                    # Process audio ready notification
                     audio_path = message.get("path")
                     response = await process_audio(AudioRequest(audio_path=audio_path))
                     await websocket.send_json(response)
                 
                 else:
-                    await websocket.send_json({"error": "未知消息类型"})
+                    await websocket.send_json({"error": "Unknown message type"})
             
             except json.JSONDecodeError:
-                await websocket.send_json({"error": "无效的JSON格式"})
+                await websocket.send_json({"error": "Invalid JSON format"})
     
     except WebSocketDisconnect:
         if client_id in connected_clients:
             del connected_clients[client_id]
     
     except Exception as e:
-        logger.error(f"WebSocket错误: {str(e)}")
+        logger.error(f"WebSocket error: {str(e)}")
         if client_id in connected_clients:
             del connected_clients[client_id]
 

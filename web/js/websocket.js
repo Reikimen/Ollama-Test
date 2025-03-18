@@ -1,12 +1,12 @@
-// WebSocket通信模块
+// WebSocket communication module
 
-// WebSocket连接
+// WebSocket connection
 let wsConnection = null;
 
-// WebSocket连接
+// Connect WebSocket
 function connectWebSocket() {
     if (wsConnection) {
-        // 已经连接
+        // Already connected
         return;
     }
     
@@ -14,30 +14,30 @@ function connectWebSocket() {
     wsConnection = new WebSocket(wsUrl);
     
     const statusElement = document.getElementById('ws-status');
-    statusElement.textContent = '正在连接...';
+    statusElement.textContent = 'Connecting...';
     statusElement.className = 'ms-3 badge bg-warning';
     
     const outputArea = document.getElementById('ws-output');
     
-    // 连接建立时
+    // Connection established
     wsConnection.onopen = function() {
-        statusElement.textContent = '已连接';
+        statusElement.textContent = 'Connected';
         statusElement.className = 'ms-3 badge bg-success';
         
         document.getElementById('ws-connect').disabled = true;
         document.getElementById('ws-disconnect').disabled = false;
         document.getElementById('ws-send').disabled = false;
         
-        outputArea.innerHTML += '<div class="console-output success">WebSocket连接已建立</div>';
+        outputArea.innerHTML += '<div class="console-output success">WebSocket connection established</div>';
     };
     
-    // 收到消息时
+    // Message received
     wsConnection.onmessage = function(event) {
         try {
             const data = JSON.parse(event.data);
-            outputArea.innerHTML += `<div class="console-output">收到消息:<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
+            outputArea.innerHTML += `<div class="console-output">Message received:<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
             
-            // 如果有音频路径，显示音频播放器
+            // If there's an audio path, display audio player
             if (data.audio_path) {
                 const audioServer = API_URLS.tts;
                 const audioFilename = data.audio_path.split('/').pop();
@@ -51,56 +51,56 @@ function connectWebSocket() {
                 
                 const audioContainer = document.createElement('div');
                 audioContainer.className = 'console-output';
-                audioContainer.innerHTML = '<strong>收到音频响应:</strong><br>';
+                audioContainer.innerHTML = '<strong>Audio response received:</strong><br>';
                 audioContainer.appendChild(audioElement);
                 
                 outputArea.appendChild(audioContainer);
                 
-                // 自动播放
+                // Auto play
                 audioElement.play().catch(() => {});
             }
         } catch (e) {
-            outputArea.innerHTML += `<div class="console-output">收到消息: ${event.data}</div>`;
+            outputArea.innerHTML += `<div class="console-output">Message received: ${event.data}</div>`;
         }
         
-        // 滚动到底部
+        // Scroll to bottom
         outputArea.scrollTop = outputArea.scrollHeight;
     };
     
-    // 连接关闭时
+    // Connection closed
     wsConnection.onclose = function() {
-        statusElement.textContent = '已断开';
+        statusElement.textContent = 'Disconnected';
         statusElement.className = 'ms-3 badge bg-secondary';
         
         document.getElementById('ws-connect').disabled = false;
         document.getElementById('ws-disconnect').disabled = true;
         document.getElementById('ws-send').disabled = true;
         
-        outputArea.innerHTML += '<div class="console-output">WebSocket连接已关闭</div>';
+        outputArea.innerHTML += '<div class="console-output">WebSocket connection closed</div>';
         wsConnection = null;
     };
     
-    // 连接错误时
+    // Connection error
     wsConnection.onerror = function(error) {
-        statusElement.textContent = '连接错误';
+        statusElement.textContent = 'Connection Error';
         statusElement.className = 'ms-3 badge bg-danger';
         
-        outputArea.innerHTML += `<div class="console-output error">WebSocket错误: ${error.message || '未知错误'}</div>`;
+        outputArea.innerHTML += `<div class="console-output error">WebSocket error: ${error.message || 'Unknown error'}</div>`;
     };
 }
 
-// 断开WebSocket连接
+// Disconnect WebSocket
 function disconnectWebSocket() {
     if (wsConnection) {
         wsConnection.close();
-        // onclose事件会处理UI更新
+        // onclose event will handle UI updates
     }
 }
 
-// 发送WebSocket消息
+// Send WebSocket message
 function sendWebSocketMessage() {
     if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-        document.getElementById('ws-output').innerHTML += '<div class="console-output error">WebSocket未连接</div>';
+        document.getElementById('ws-output').innerHTML += '<div class="console-output error">WebSocket not connected</div>';
         return;
     }
     
@@ -110,18 +110,18 @@ function sendWebSocketMessage() {
         return;
     }
     
-    // 创建消息对象
+    // Create message object
     const messageObj = {
         type: 'text',
         text: message
     };
     
-    // 发送消息
+    // Send message
     wsConnection.send(JSON.stringify(messageObj));
     
-    // 显示已发送的消息
-    document.getElementById('ws-output').innerHTML += `<div class="console-output">发送消息: ${message}</div>`;
+    // Display sent message
+    document.getElementById('ws-output').innerHTML += `<div class="console-output">Message sent: ${message}</div>`;
     
-    // 清空输入框
+    // Clear input box
     document.getElementById('ws-message').value = '';
 }

@@ -1,20 +1,20 @@
-// AI聊天交互模块
+// AI chat interaction module
 
-// 发送文本到AI
+// Send text to AI
 async function sendTextToAI() {
     const userInput = document.getElementById('user-input').value.trim();
     const chatHistory = document.getElementById('chat-history');
     
     if (!userInput) return;
     
-    // 添加用户消息到聊天历史
+    // Add user message to chat history
     addMessageToChat('user', userInput);
     
-    // 清空输入框
+    // Clear input box
     document.getElementById('user-input').value = '';
     
-    // 添加AI思考中消息
-    const thinkingId = addMessageToChat('ai', '思考中...');
+    // Add AI thinking message
+    const thinkingId = addMessageToChat('ai', 'Thinking...');
     
     try {
         const response = await fetch(`${API_URLS.coordinator}/process_text`, {
@@ -28,50 +28,50 @@ async function sendTextToAI() {
         const data = await response.json();
         
         if (response.ok) {
-            // 替换思考中的消息
+            // Replace thinking message
             updateChatMessage(thinkingId, data.ai_response);
             
-            // 显示IoT命令信息（如果有）
+            // Show IoT command information (if any)
             if (data.iot_commands && data.iot_commands.length > 0) {
-                let iotInfo = '已发送以下IoT命令:<br>';
+                let iotInfo = 'Sent the following IoT commands:<br>';
                 data.iot_commands.forEach(cmd => {
                     iotInfo += `- ${cmd.device} (${cmd.location}): ${cmd.action}<br>`;
                 });
                 addMessageToChat('system', iotInfo);
             }
             
-            // 显示表情信息
+            // Show expression information
             if (data.expression) {
-                addMessageToChat('system', `表情: ${data.expression}`);
+                addMessageToChat('system', `Expression: ${data.expression}`);
             }
             
-            // 处理音频播放
+            // Handle audio playback
             if (data.audio_path) {
-                // 创建完整的音频URL
+                // Create complete audio URL
                 const audioServer = API_URLS.tts;
                 const audioFilename = data.audio_path.split('/').pop();
                 const audioUrl = `${audioServer}/audio/${audioFilename}`;
                 
-                // 设置音频播放器
+                // Set audio player
                 const audioPlayer = document.getElementById('audio-player');
                 audioPlayer.src = audioUrl;
                 document.getElementById('audio-player-container').style.display = 'block';
                 
-                // 自动播放
+                // Auto play
                 audioPlayer.play().catch(err => {
-                    console.error('自动播放失败:', err);
-                    addMessageToChat('system', '注意: 由于浏览器政策，需要手动点击播放按钮播放音频。');
+                    console.error('Auto-play failed:', err);
+                    addMessageToChat('system', 'Note: Due to browser policy, you need to manually click the play button to play audio.');
                 });
             }
         } else {
-            updateChatMessage(thinkingId, `处理失败: ${data.error || '未知错误'}`);
+            updateChatMessage(thinkingId, `Processing failed: ${data.error || 'Unknown error'}`);
         }
     } catch (error) {
-        updateChatMessage(thinkingId, `请求出错: ${error.message}`);
+        updateChatMessage(thinkingId, `Request error: ${error.message}`);
     }
 }
 
-// 添加消息到聊天历史
+// Add message to chat history
 function addMessageToChat(type, text) {
     const chatHistory = document.getElementById('chat-history');
     const messageId = 'msg-' + Date.now();
@@ -82,7 +82,7 @@ function addMessageToChat(type, text) {
     
     const messageP = document.createElement('p');
     
-    // 系统消息可以包含HTML
+    // System messages can contain HTML
     if (type === 'system') {
         messageP.innerHTML = text;
     } else {
@@ -92,25 +92,25 @@ function addMessageToChat(type, text) {
     messageDiv.appendChild(messageP);
     chatHistory.appendChild(messageDiv);
     
-    // 滚动到底部
+    // Scroll to bottom
     chatHistory.scrollTop = chatHistory.scrollHeight;
     
     return messageId;
 }
 
-// 更新聊天消息
+// Update chat message
 function updateChatMessage(messageId, text) {
     const messageElement = document.getElementById(messageId);
     if (messageElement) {
         messageElement.querySelector('p').textContent = text;
         
-        // 滚动到底部
+        // Scroll to bottom
         const chatHistory = document.getElementById('chat-history');
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
 }
 
-// 清空聊天历史
+// Clear chat history
 function clearChat() {
     document.getElementById('chat-history').innerHTML = '';
     document.getElementById('audio-player-container').style.display = 'none';

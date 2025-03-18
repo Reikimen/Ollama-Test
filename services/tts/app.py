@@ -8,27 +8,27 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
-import edge_tts  # 使用微软Edge TTS作为TTS引擎
+import edge_tts  # Using Microsoft Edge TTS as the TTS engine
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# 环境变量
+# Environment variables
 AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
-TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural")  # 中文女声
-OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")  # 输出格式，ESP32通常使用MP3
+TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")  # English female voice
+OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")  # Output format, ESP32 typically uses MP3
 
-# 创建音频目录
+# Create audio directory
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# 创建FastAPI应用
-app = FastAPI(title="语音合成服务")
+# Create FastAPI application
+app = FastAPI(title="Text-to-Speech Service")
 
-# 配置CORS
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,35 +44,35 @@ class TTSRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "语音合成服务运行中"}
+    return {"message": "Text-to-Speech Service is running"}
 
 @app.get("/voices")
 async def list_voices():
-    """列出所有可用的语音"""
+    """List all available voices"""
     try:
         voices = await edge_tts.list_voices()
         return {"voices": voices}
     except Exception as e:
-        logger.error(f"获取语音列表出错: {str(e)}")
+        logger.error(f"Error getting voice list: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"获取语音列表出错: {str(e)}"}
+            content={"error": f"Error getting voice list: {str(e)}"}
         )
 
 @app.post("/synthesize")
 async def synthesize_speech(request: TTSRequest):
-    """合成语音并返回音频文件路径"""
+    """Synthesize speech and return audio file path"""
     try:
-        # 生成唯一文件名
+        # Generate unique filename
         timestamp = int(time.time())
         filename = f"tts_{timestamp}.{request.format}"
         file_path = os.path.join(AUDIO_DIR, filename)
         
-        # 使用Edge TTS合成语音
+        # Use Edge TTS to synthesize speech
         communicate = edge_tts.Communicate(request.text, request.voice)
         await communicate.save(file_path)
         
-        logger.info(f"语音已合成: {file_path}")
+        logger.info(f"Speech synthesized: {file_path}")
         
         return {
             "audio_path": file_path,
@@ -81,38 +81,38 @@ async def synthesize_speech(request: TTSRequest):
         }
     
     except Exception as e:
-        logger.error(f"语音合成出错: {str(e)}")
+        logger.error(f"Speech synthesis error: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"语音合成出错: {str(e)}"}
+            content={"error": f"Speech synthesis error: {str(e)}"}
         )
 
 @app.get("/audio/{filename}")
 async def get_audio(filename: str):
-    """获取合成的音频文件"""
+    """Get synthesized audio file"""
     file_path = os.path.join(AUDIO_DIR, filename)
     
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="音频文件不存在")
+        raise HTTPException(status_code=404, detail="Audio file does not exist")
     
     return FileResponse(file_path)
 
 @app.post("/stream")
 async def stream_audio(request: TTSRequest):
-    """流式合成音频（用于实时传输到ESP32）"""
+    """Stream audio synthesis (for real-time transmission to ESP32)"""
     try:
-        # 生成唯一文件名
+        # Generate unique filename
         timestamp = int(time.time())
         filename = f"stream_{timestamp}.{request.format}"
         file_path = os.path.join(AUDIO_DIR, filename)
         
-        # 使用Edge TTS合成语音
+        # Use Edge TTS to synthesize speech
         communicate = edge_tts.Communicate(request.text, request.voice)
         
-        # 直接保存
+        # Direct save
         await communicate.save(file_path)
         
-        logger.info(f"流式语音已合成: {file_path}")
+        logger.info(f"Streaming speech synthesized: {file_path}")
         
         return {
             "audio_path": file_path,
@@ -120,10 +120,10 @@ async def stream_audio(request: TTSRequest):
         }
     
     except Exception as e:
-        logger.error(f"流式语音合成出错: {str(e)}")
+        logger.error(f"Streaming speech synthesis error: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"流式语音合成出错: {str(e)}"}
+            content={"error": f"Streaming speech synthesis error: {str(e)}"}
         )
 
 if __name__ == "__main__":

@@ -1,17 +1,17 @@
-// IoT设备控制模块
+// IoT device control module
 
-// 更新动作下拉菜单
+// Update action dropdown
 function updateActionDropdown() {
     const deviceType = document.getElementById('device-type').value;
     const actionSelect = document.getElementById('device-action');
     
-    // 清空现有选项
+    // Clear existing options
     actionSelect.innerHTML = '';
     
-    // 根据设备类型添加选项
+    // Add options based on device type
     const options = DEVICE_ACTIONS[deviceType] || [];
     
-    // 添加选项到下拉菜单
+    // Add options to dropdown
     options.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
@@ -20,14 +20,14 @@ function updateActionDropdown() {
     });
 }
 
-// 发送IoT控制命令
+// Send IoT control command
 async function sendIoTCommand() {
     const device = document.getElementById('device-type').value;
     const action = document.getElementById('device-action').value;
     const location = document.getElementById('device-location').value;
     const outputArea = document.getElementById('iot-output');
     
-    outputArea.innerHTML = `<div class="console-output">正在发送命令: ${device} (${location}) - ${action}...</div>`;
+    outputArea.innerHTML = `<div class="console-output">Sending command: ${device} (${location}) - ${action}...</div>`;
     
     try {
         const response = await fetch(`${API_URLS.iot}/control`, {
@@ -45,30 +45,30 @@ async function sendIoTCommand() {
         const data = await response.json();
         
         if (response.ok) {
-            outputArea.innerHTML = `<div class="console-output">命令发送成功！<br>结果: ${JSON.stringify(data, null, 2)}</div>`;
+            outputArea.innerHTML = `<div class="console-output">Command sent successfully!<br>Result: ${JSON.stringify(data, null, 2)}</div>`;
         } else {
-            outputArea.innerHTML = `<div class="console-output error">命令发送失败: ${data.error || '未知错误'}</div>`;
+            outputArea.innerHTML = `<div class="console-output error">Command sending failed: ${data.error || 'Unknown error'}</div>`;
         }
     } catch (error) {
-        outputArea.innerHTML = `<div class="console-output error">请求出错: ${error.message}</div>`;
+        outputArea.innerHTML = `<div class="console-output error">Request error: ${error.message}</div>`;
     }
 }
 
-// 获取所有设备状态
+// Get all device status
 async function getAllDevices() {
     const outputArea = document.getElementById('iot-output');
-    outputArea.innerHTML = '<div class="console-output">正在获取设备状态...</div>';
+    outputArea.innerHTML = '<div class="console-output">Getting device status...</div>';
     
     try {
         const response = await fetch(`${API_URLS.iot}/devices`);
         const data = await response.json();
         
         if (response.ok) {
-            outputArea.innerHTML = `<div class="console-output">设备状态:<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
+            outputArea.innerHTML = `<div class="console-output">Device status:<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
         } else {
-            outputArea.innerHTML = `<div class="console-output error">获取设备状态失败: ${data.error || '未知错误'}</div>`;
+            outputArea.innerHTML = `<div class="console-output error">Failed to get device status: ${data.error || 'Unknown error'}</div>`;
         }
     } catch (error) {
-        outputArea.innerHTML = `<div class="console-output error">请求出错: ${error.message}</div>`;
+        outputArea.innerHTML = `<div class="console-output error">Request error: ${error.message}</div>`;
     }
 }

@@ -1,4 +1,4 @@
-// API基础URL配置
+// API base URL configuration
 const API_URLS = {
     coordinator: 'http://localhost:8080',
     stt: 'http://localhost:8000',
@@ -7,37 +7,37 @@ const API_URLS = {
     ollama: 'http://localhost:11434'
 };
 
-// 服务名称映射
+// Service name mapping
 const SERVICE_NAMES = {
-    coordinator: '协调',
-    stt: '语音识别',
-    tts: '语音合成',
-    iot: 'IoT控制',
+    coordinator: 'Coordinator',
+    stt: 'Speech Recognition',
+    tts: 'Text-to-Speech',
+    iot: 'IoT Control',
     ollama: 'Ollama'
 };
 
-// 设备类型动作映射
+// Device type action mapping
 const DEVICE_ACTIONS = {
     light: [
-        { value: 'on', text: '打开' },
-        { value: 'off', text: '关闭' },
-        { value: 'brighten', text: '调亮' },
-        { value: 'dim', text: '调暗' }
+        { value: 'on', text: 'Turn On' },
+        { value: 'off', text: 'Turn Off' },
+        { value: 'brighten', text: 'Brighten' },
+        { value: 'dim', text: 'Dim' }
     ],
     fan: [
-        { value: 'on', text: '打开' },
-        { value: 'off', text: '关闭' },
-        { value: 'speed_up', text: '加速' },
-        { value: 'speed_down', text: '减速' }
+        { value: 'on', text: 'Turn On' },
+        { value: 'off', text: 'Turn Off' },
+        { value: 'speed_up', text: 'Speed Up' },
+        { value: 'speed_down', text: 'Speed Down' }
     ],
     ac: [
-        { value: 'on', text: '打开' },
-        { value: 'off', text: '关闭' },
-        { value: 'temp_up', text: '升温' },
-        { value: 'temp_down', text: '降温' }
+        { value: 'on', text: 'Turn On' },
+        { value: 'off', text: 'Turn Off' },
+        { value: 'temp_up', text: 'Increase Temperature' },
+        { value: 'temp_down', text: 'Decrease Temperature' }
     ],
     curtain: [
-        { value: 'on', text: '打开' },
-        { value: 'off', text: '关闭' }
+        { value: 'on', text: 'Open' },
+        { value: 'off', text: 'Close' }
     ]
 };
