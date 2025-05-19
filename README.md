@@ -1,34 +1,34 @@
-# AI 语音助手 + IoT 控制系统
+# AI Voice Assistant + IoT Control System
 
-这是一个基于Docker的AI语音助手系统，使用Ollama作为核心LLM，集成语音识别、语音合成和IoT设备控制功能。系统设计用于低算力设备（ESP32）与PC端Docker容器的协作，实现语音交互、表情显示和IoT设备控制。
+This is a Docker-based AI voice assistant system that uses Ollama as the core LLM, integrating speech recognition, speech synthesis, and IoT device control functionality. The system is designed for collaboration between low-computing-power devices (ESP32) and PC-side Docker containers, enabling voice interaction, emotion display, and IoT device control.
 
-## 系统架构
+## System Architecture
 
-系统由5个Docker容器组成，各自负责不同的功能：
+The system consists of 5 Docker containers, each responsible for different functions:
 
-1. **Ollama服务**：提供LLM（大型语言模型）能力，处理自然语言理解和生成
-2. **STT服务**：负责语音识别（Speech-to-Text），将ESP32上传的语音转换为文本
-3. **TTS服务**：负责语音合成（Text-to-Speech），将AI回复转换为ESP32可播放的音频
-4. **IoT控制服务**：管理各种智能设备的状态和控制命令
-5. **协调服务**：作为中央控制器，协调各服务之间的通信
+1. **Ollama Service**: Provides LLM (Large Language Model) capabilities, handling natural language understanding and generation
+2. **STT Service**: Responsible for speech recognition (Speech-to-Text), converting audio uploaded from ESP32 to text
+3. **TTS Service**: Responsible for speech synthesis (Text-to-Speech), converting AI responses to audio playable by ESP32
+4. **IoT Control Service**: Manages the status and control commands of various smart devices
+5. **Coordinator Service**: Acts as the central controller, coordinating communication between services
 
-## 环境要求
+## Requirements
 
-- Docker和Docker Compose
-- Mac mini (M4) 或其他运行Docker的计算设备
-- ESP32开发板（用于语音采集和播放）
-- 可选：第二个ESP32开发板（用于LCD显示表情）
+- Docker and Docker Compose
+- Mac mini (M4) or other computing devices running Docker
+- ESP32 development board (for voice recording and playback)
+- Optional: Second ESP32 development board (for LCD display of expressions)
 
-## 快速开始
+## Quick Start
 
-### 1. 克隆项目
+### 1. Clone the Project
 
 ```bash
 git clone https://github.com/yourusername/ai-voice-assistant-iot.git
 cd ai-voice-assistant-iot
 ```
 
-### 2. 创建目录结构
+### 2. Create Directory Structure
 
 ```bash
 mkdir -p data/audio
@@ -40,149 +40,149 @@ mkdir -p services/iot
 mkdir -p esp32
 ```
 
-### 3. 复制配置文件
+### 3. Copy Configuration Files
 
-将所有代码文件复制到相应目录：
+Copy all code files to the appropriate directories:
 
-- `docker-compose.yml` → 项目根目录
-- 各服务的Python文件和Dockerfile → 对应服务目录
-- ESP32代码 → esp32目录
+- `docker-compose.yml` → Project root directory
+- Python files and Dockerfile for each service → Corresponding service directories
+- ESP32 code → esp32 directory
 
-### 4. 构建并启动Docker容器
+### 4. Build and Start Docker Containers
 
 ```bash
 docker-compose up --build
 ```
 
-首次启动时，系统将下载相关镜像并构建容器，可能需要一些时间。
+When starting for the first time, the system will download relevant images and build containers, which may take some time.
 
-### 5. 配置并烧录ESP32
+### 5. Configure and Flash ESP32
 
-1. 修改ESP32代码中的WiFi配置和服务器IP地址
-2. 使用Arduino IDE或PlatformIO将代码烧录到ESP32
-3. 如果使用两个ESP32，还需要设置LCD显示的ESP32通信方式
+1. Modify WiFi configuration and server IP address in the ESP32 code
+2. Use Arduino IDE or PlatformIO to flash the code to ESP32
+3. If using two ESP32s, you'll also need to set up the communication method for the LCD display ESP32
 
-## 使用方法
+## Usage
 
-系统启动后，可以通过以下方式使用：
+After system startup, you can use it in the following ways:
 
-1. **语音交互**：按下ESP32上的按钮开始录音，录音完成后自动发送到服务器处理
-2. **查看服务状态**：访问http://localhost:8080查看协调服务状态
-3. **手动测试**：使用Postman或curl向各服务API发送请求进行测试
+1. **Voice Interaction**: Press the button on the ESP32 to start recording, which will be automatically sent to the server for processing after completion
+2. **Check Service Status**: Visit http://localhost:8080 to check the coordinator service status
+3. **Manual Testing**: Use Postman or curl to send requests to the various service APIs for testing
 
-## 服务API说明
+## Service API Documentation
 
-### 协调服务 (8080端口)
+### Coordinator Service (Port 8080)
 
-- `GET /` - 检查服务状态
-- `POST /process_audio` - 处理音频并返回AI响应
-- `POST /process_text` - 处理文本并返回AI响应
-- `WebSocket /ws` - WebSocket连接端点
+- `GET /` - Check service status
+- `POST /process_audio` - Process audio and return AI response
+- `POST /process_text` - Process text and return AI response
+- `WebSocket /ws` - WebSocket connection endpoint
 
-### STT服务 (8000端口)
+### STT Service (Port 8000)
 
-- `GET /` - 检查服务状态
-- `POST /transcribe` - 转录指定路径的音频文件
-- `POST /upload` - 上传音频文件并转录
-- UDP 8000端口 - 接收ESP32发送的音频数据
+- `GET /` - Check service status
+- `POST /transcribe` - Transcribe audio file at specified path
+- `POST /upload` - Upload audio file and transcribe
+- UDP Port 8000 - Receive audio data sent from ESP32
 
-### TTS服务 (8001端口)
+### TTS Service (Port 8001)
 
-- `GET /` - 检查服务状态
-- `GET /voices` - 列出所有可用的语音
-- `POST /synthesize` - 合成语音并返回音频文件路径
-- `GET /audio/{filename}` - 获取合成的音频文件
-- `POST /stream` - 流式合成音频
+- `GET /` - Check service status
+- `GET /voices` - List all available voices
+- `POST /synthesize` - Synthesize speech and return audio file path
+- `GET /audio/{filename}` - Get synthesized audio file
+- `POST /stream` - Stream synthesized audio
 
-### IoT控制服务 (8002端口)
+### IoT Control Service (Port 8002)
 
-- `GET /` - 检查服务状态
-- `GET /devices` - 获取所有设备状态
-- `GET /device/{device_type}/{location}` - 获取特定设备的状态
-- `POST /control` - 控制IoT设备
-- `WebSocket /ws` - WebSocket连接端点，用于设备状态更新
+- `GET /` - Check service status
+- `GET /devices` - Get all device states
+- `GET /device/{device_type}/{location}` - Get specific device status
+- `POST /control` - Control IoT devices
+- `WebSocket /ws` - WebSocket connection endpoint for device status updates
 
-## Ollama模型配置
+## Ollama Model Configuration
 
-系统默认使用`llama3`模型，你可以通过以下方式下载并配置模型：
+The system uses the `llama3` model by default. You can download and configure the model as follows:
 
 ```bash
-# 在宿主机上安装Ollama（如果还没有安装）
+# Install Ollama on the host (if not already installed)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 下载llama3模型
+# Download llama3 model
 ollama pull llama3
 
-# 或者使用其他模型
+# Or use other models
 ollama pull llama3:8b
 ```
 
-你也可以在`docker-compose.yml`文件中修改`OLLAMA_MODEL`环境变量来使用不同的模型。
+You can also modify the `OLLAMA_MODEL` environment variable in the `docker-compose.yml` file to use different models.
 
-# 拉取指定的模型
+# Pull a specific model
 curl -X POST http://localhost:11434/api/pull -d '{"name": "llama3"}'
 
-# 拉取特定大小的模型
+# Pull a specific size model
 curl -X POST http://localhost:11434/api/pull -d '{"name": "llama3:8b"}'
 
-## 自定义和扩展
+## Customization and Extension
 
-### 添加新的IoT设备类型
+### Adding New IoT Device Types
 
-1. 在`services/iot/app.py`的`device_states`字典中添加新设备类型
-2. 在`extract_iot_commands`和`execute_command`函数中添加对应的处理逻辑
-3. 更新ESP32代码中的`controlIoTDevice`函数以支持新设备
+1. Add new device types to the `device_states` dictionary in `services/iot/app.py`
+2. Add corresponding processing logic to the `extract_iot_commands` and `execute_command` functions
+3. Update the `controlIoTDevice` function in the ESP32 code to support new devices
 
-### 使用不同的TTS引擎
+### Using Different TTS Engines
 
-当前系统使用微软Edge TTS作为语音合成引擎。如果需要使用其他引擎：
+The current system uses Microsoft Edge TTS as the speech synthesis engine. If you need to use other engines:
 
-1. 修改`services/tts/app.py`，替换Edge TTS相关代码
-2. 更新`services/tts/requirements.txt`添加所需依赖
-3. 重新构建TTS服务容器
+1. Modify `services/tts/app.py`, replacing Edge TTS related code
+2. Update `services/tts/requirements.txt` to add necessary dependencies
+3. Rebuild the TTS service container
 
-### 优化STT模型
+### Optimizing the STT Model
 
-Whisper模型大小会影响识别质量和速度。可以通过修改环境变量`WHISPER_MODEL`来调整：
-- `tiny` - 最小模型，速度最快但精度较低
-- `base` - 默认模型，平衡速度和精度
-- `small` - 较大模型，精度更高但速度较慢
-- `medium` - 大型模型，精度高但需要更多计算资源
-- `large` - 最大模型，精度最高但速度最慢
+The size of the Whisper model affects recognition quality and speed. You can adjust it by modifying the `WHISPER_MODEL` environment variable:
+- `tiny` - Smallest model, fastest but lowest accuracy
+- `base` - Default model, balanced speed and accuracy
+- `small` - Larger model, higher accuracy but slower
+- `medium` - Large model, high accuracy but requires more computing resources
+- `large` - Largest model, highest accuracy but slowest
 
-## 故障排除
+## Troubleshooting
 
-### 1. ESP32无法连接到服务器
+### 1. ESP32 Cannot Connect to Server
 
-- 检查WiFi连接和网络配置
-- 确保ESP32和Docker主机在同一网络
-- 检查防火墙设置，确保UDP端口8000和WebSocket端口8080未被阻止
+- Check WiFi connection and network configuration
+- Ensure ESP32 and Docker host are on the same network
+- Check firewall settings to ensure UDP port 8000 and WebSocket port 8080 are not blocked
 
-### 2. 语音识别不工作
+### 2. Speech Recognition Not Working
 
-- 检查麦克风连接和I2S配置
-- 查看STT服务日志，确认音频数据是否正常接收
-- 尝试调整录音音量或降噪设置
+- Check microphone connection and I2S configuration
+- Check STT service logs to confirm if audio data is being received normally
+- Try adjusting recording volume or noise reduction settings
 
-### 3. 语音合成没有声音
+### 3. Speech Synthesis Has No Sound
 
-- 检查扬声器连接和I2S配置
-- 确认音频文件路径是否正确
-- 检查是否正确收到TTS服务响应
+- Check speaker connection and I2S configuration
+- Confirm if the audio file path is correct
+- Check if TTS service response is correctly received
 
-### 4. Ollama模型加载失败
+### 4. Ollama Model Loading Failure
 
-- 确保有足够的磁盘空间和内存
-- 检查Ollama服务日志以获取详细错误信息
-- 尝试使用较小的模型（如`llama3:8b`）
+- Ensure sufficient disk space and memory
+- Check Ollama service logs for detailed error information
+- Try using a smaller model (like `llama3:8b`)
 
-## 注意事项
+## Notes
 
-- 系统配置为内部网络使用，不建议直接暴露到公网
-- 默认无安全认证，如需公网访问，请添加适当的认证机制
-- ESP32的电源供应应稳定，以避免录音或播放中断
-- Docker容器间通信依赖Docker网络，请确保容器名称解析正常
+- The system is configured for internal network use and is not recommended for direct exposure to the public internet
+- There is no default security authentication; if public access is needed, please add appropriate authentication mechanisms
+- ESP32 power supply should be stable to avoid interruption of recording or playback
+- Communication between Docker containers depends on the Docker network; please ensure container name resolution is working properly
 
-## 许可证
+## License
 
-本项目采用MIT许可证。
+This project is licensed under the MIT License.
