@@ -17,6 +17,7 @@
     <script src="js/iot.js"></script>
     <script src="js/tts.js"></script>
     <script src="js/websocket.js"></script>
+    <script src="js/stt-test.js"></script>
     <script src="js/main.js"></script>
 </head>
 <body>
@@ -139,16 +140,58 @@
             </div>
         </div>
 
-        <!-- IoT and TTS Controls -->
+        <!-- STT, IoT and TTS Controls -->
         <div class="row mb-4">
-            <div class="col-md-7">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-mic"></i> Speech Recognition (STT)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="stt-file" class="form-label">Upload Audio File:</label>
+                            <input type="file" id="stt-file" class="form-control" accept="audio/*">
+                        </div>
+                        <div class="mb-3">
+                            <button id="test-stt-upload" class="btn btn-primary" onclick="testSTTUpload()">
+                                <i class="bi bi-upload"></i> Test File Upload
+                            </button>
+                            <button id="test-stt-record" class="btn btn-success" onclick="testSTTRecord()">
+                                <i class="bi bi-mic-fill"></i> Test Live Recording
+                            </button>
+                        </div>
+                        
+                        <!-- Live Recording Controls -->
+                        <div id="stt-recording-controls" style="display: none;">
+                            <div class="alert alert-info">
+                                <i class="bi bi-mic"></i> Recording in progress...
+                                <button class="btn btn-sm btn-danger ms-2" onclick="stopSTTRecording()">Stop</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Test Results -->
+                        <div class="mb-3">
+                            <h6>Quick Tests:</h6>
+                            <div class="btn-group-vertical w-100" role="group">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="testSTTHealth()">Check STT Health</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="testSTTWithSample()">Test with Sample Audio</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="performSTTPerformanceTest()">Performance Test</button>
+                            </div>
+                        </div>
+                        
+                        <div id="stt-output" class="output-area mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
                 <div class="card">
                     <div class="card-header">
                         <h5><i class="bi bi-hdd-network"></i> IoT Device Control</h5>
                     </div>
                     <div class="card-body">
                         <div class="row mb-3">
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="device-type" class="form-label">Device Type:</label>
                                 <select id="device-type" class="form-select">
                                     <option value="ceiling_light">Ceiling Light</option>
@@ -159,23 +202,23 @@
                                     <option value="curtain">Curtain</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label for="device-action" class="form-label">Action:</label>
                                 <select id="device-action" class="form-select">
                                     <option value="on">Turn On</option>
                                     <option value="off">Turn Off</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label for="device-location" class="form-label">Location:</label>
-                                <select id="device-location" class="form-select">
-                                    <option value="living_room">Living Room</option>
-                                    <option value="bedroom">Bedroom</option>
-                                    <option value="kitchen">Kitchen</option>
-                                    <option value="study">Study</option>
-                                    <option value="bathroom">Bathroom</option>
-                                </select>
-                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="device-location" class="form-label">Location:</label>
+                            <select id="device-location" class="form-select">
+                                <option value="living_room">Living Room</option>
+                                <option value="bedroom">Bedroom</option>
+                                <option value="kitchen">Kitchen</option>
+                                <option value="study">Study</option>
+                                <option value="bathroom">Bathroom</option>
+                            </select>
                         </div>
                         
                         <!-- Advanced Parameters -->
@@ -225,10 +268,10 @@
                 </div>
             </div>
             
-            <div class="col-md-5">
+            <div class="col-md-4">
                 <div class="card">
                     <div class="card-header">
-                        <h5><i class="bi bi-soundwave"></i> Speech Synthesis</h5>
+                        <h5><i class="bi bi-soundwave"></i> Speech Synthesis (TTS)</h5>
                     </div>
                     <div class="card-body">
                         <div class="mb-3">
@@ -333,6 +376,9 @@
                             </button>
                             <button class="btn btn-secondary" onclick="showSystemInfo()">
                                 <i class="bi bi-info-circle"></i> System Info
+                            </button>
+                            <button class="btn btn-primary" onclick="debugSTTService()">
+                                <i class="bi bi-mic"></i> Debug STT Service
                             </button>
                         </div>
                         <div id="debug-output" class="output-area mt-3"></div>
@@ -440,7 +486,7 @@
 
         // Debug tools
         function clearAllOutputs() {
-            const outputs = ['models-output', 'status-output', 'chat-history', 'iot-output', 'tts-output', 'ws-output', 'debug-output'];
+            const outputs = ['models-output', 'status-output', 'chat-history', 'iot-output', 'tts-output', 'ws-output', 'debug-output', 'stt-output'];
             outputs.forEach(id => {
                 const element = document.getElementById(id);
                 if (element) element.innerHTML = '';
@@ -449,7 +495,7 @@
         }
 
         function exportLogs() {
-            const outputs = ['models-output', 'status-output', 'iot-output', 'tts-output', 'ws-output'];
+            const outputs = ['models-output', 'status-output', 'iot-output', 'tts-output', 'ws-output', 'stt-output'];
             let logData = '';
             
             outputs.forEach(id => {
@@ -479,6 +525,8 @@
                 platform: navigator.platform,
                 cookieEnabled: navigator.cookieEnabled,
                 onLine: navigator.onLine,
+                mediaDevices: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                audioContext: !!(window.AudioContext || window.webkitAudioContext),
                 timestamp: new Date().toISOString(),
                 apiUrls: API_URLS
             };
@@ -573,11 +621,7 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (response.ok) {
-                    outputArea.innerHTML += `<div class="console-output success">Command sent successfully!<br>Result: ${JSON.stringify(data, null, 2)}</div>`;
-                } else {
-                    outputArea.innerHTML += `<div class="console-output error">Command sending failed: ${data.error || 'Unknown error'}</div>`;
-                }
+                outputArea.innerHTML += `<div class="console-output success">Command sent successfully!<br>Result: ${JSON.stringify(data, null, 2)}</div>`;
             })
             .catch(error => {
                 outputArea.innerHTML += `<div class="console-output error">Request error: ${error.message}</div>`;
