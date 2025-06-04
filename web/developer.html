@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Assistant Control Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- Load configuration and modules -->
+    <script src="js/config.js"></script>
+    <script src="js/api-client.js"></script>
+    <script src="js/ollama.js"></script>
+    <script src="js/services.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/iot.js"></script>
+    <script src="js/tts.js"></script>
+    <script src="js/websocket.js"></script>
+    <script src="js/main.js"></script>
+</head>
+<body>
+    <!-- Mode Switcher -->
+    <div class="mode-switcher">
+        <a href="index.html" class="mode-btn">
+            <i class="bi bi-house-heart"></i> User Mode
+        </a>
+        <a href="developer.html" class="mode-btn active">
+            <i class="bi bi-code-slash"></i> Developer Mode
+        </a>
+    </div>
+
+    <div class="container-fluid">
+        <!-- Header -->
+        <header class="text-center my-4">
+            <h1 class="text-white mb-3">
+                <i class="bi bi-robot"></i> AI Voice Assistant Control Panel
+            </h1>
+            <p class="lead text-white-50">
+                Interact with AI Voice Assistant System API
+            </p>
+        </header>
+
+        <!-- Service Status and Model Management -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-cpu"></i> Ollama Model Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <button id="check-models" class="btn btn-primary mb-3">Check Available Models</button>
+                        <div class="mb-3">
+                            <label for="model-name" class="form-label">Model Name:</label>
+                            <div class="input-group">
+                                <input type="text" id="model-name" class="form-control" placeholder="e.g.: llama3" value="llama3">
+                                <button id="pull-model" class="btn btn-success">Pull Model</button>
+                            </div>
+                        </div>
+                        <div id="models-output" class="output-area"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-activity"></i> Service Status Check</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-info" id="check-coordinator">
+                                <span class="status-indicator status-offline" id="coordinator-status"></span>
+                                Check Coordinator Service
+                            </button>
+                            <button class="btn btn-info" id="check-stt">
+                                <span class="status-indicator status-offline" id="stt-status"></span>
+                                Check STT Service
+                            </button>
+                            <button class="btn btn-info" id="check-tts">
+                                <span class="status-indicator status-offline" id="tts-status"></span>
+                                Check TTS Service
+                            </button>
+                            <button class="btn btn-info" id="check-iot">
+                                <span class="status-indicator status-offline" id="iot-status"></span>
+                                Check IoT Service
+                            </button>
+                            <button class="btn btn-info" id="check-ollama">
+                                <span class="status-indicator status-offline" id="ollama-status"></span>
+                                Check Ollama Service
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-warning w-100" id="check-all-services">
+                                <i class="bi bi-arrow-clockwise"></i> Check All Services
+                            </button>
+                        </div>
+                        <div id="status-output" class="output-area mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced AI Interaction -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-chat-dots"></i> Advanced AI Interaction</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="user-input" class="form-label">Input Text:</label>
+                            <textarea id="user-input" class="form-control" rows="3" placeholder="Enter your question for AI..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <button id="send-text" class="btn btn-primary">
+                                <i class="bi bi-send"></i> Send Text
+                            </button>
+                            <button id="clear-chat" class="btn btn-secondary">
+                                <i class="bi bi-trash"></i> Clear Conversation
+                            </button>
+                            <button class="btn btn-info" onclick="loadTestPrompts()">
+                                <i class="bi bi-card-list"></i> Load Test Prompts
+                            </button>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <h6>Conversation History:</h6>
+                            <div id="chat-history" class="chat-area"></div>
+                        </div>
+                        
+                        <div class="mt-3" id="audio-player-container" style="display: none;">
+                            <h6>AI Response Audio:</h6>
+                            <audio id="audio-player" controls></audio>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IoT and TTS Controls -->
+        <div class="row mb-4">
+            <div class="col-md-7">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-hdd-network"></i> IoT Device Control</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label for="device-type" class="form-label">Device Type:</label>
+                                <select id="device-type" class="form-select">
+                                    <option value="ceiling_light">Ceiling Light</option>
+                                    <option value="desk_lamp">Desk Lamp</option>
+                                    <option value="fan">Fan</option>
+                                    <option value="exhaust_fan">Exhaust Fan</option>
+                                    <option value="ac">AC</option>
+                                    <option value="curtain">Curtain</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="device-action" class="form-label">Action:</label>
+                                <select id="device-action" class="form-select">
+                                    <option value="on">Turn On</option>
+                                    <option value="off">Turn Off</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="device-location" class="form-label">Location:</label>
+                                <select id="device-location" class="form-select">
+                                    <option value="living_room">Living Room</option>
+                                    <option value="bedroom">Bedroom</option>
+                                    <option value="kitchen">Kitchen</option>
+                                    <option value="study">Study</option>
+                                    <option value="bathroom">Bathroom</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Advanced Parameters -->
+                        <div class="row mb-3" id="advanced-params" style="display: none;">
+                            <div class="col-md-6">
+                                <label for="param-value" class="form-label">Parameter Value:</label>
+                                <input type="number" id="param-value" class="form-control" placeholder="e.g., 75 for brightness">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="param-type" class="form-label">Parameter Type:</label>
+                                <select id="param-type" class="form-select">
+                                    <option value="brightness">Brightness (%)</option>
+                                    <option value="temperature">Temperature (°C)</option>
+                                    <option value="speed">Speed (1-5)</option>
+                                    <option value="position">Position (%)</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <button id="send-command" class="btn btn-success">
+                                <i class="bi bi-play-circle"></i> Send Control Command
+                            </button>
+                            <button id="get-devices" class="btn btn-info">
+                                <i class="bi bi-list-ul"></i> Get All Device Status
+                            </button>
+                            <button class="btn btn-warning" onclick="toggleAdvancedParams()">
+                                <i class="bi bi-gear"></i> Advanced Parameters
+                            </button>
+                        </div>
+                        
+                        <!-- Scene Control -->
+                        <div class="mb-3">
+                            <h6>Scene Control:</h6>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('home_mode')">Home</button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('sleep_mode')">Sleep</button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('work_mode')">Work</button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('movie_mode')">Movie</button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('cooking_mode')">Cooking</button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="executeSceneFromDev('away_mode')">Away</button>
+                            </div>
+                        </div>
+                        
+                        <div id="iot-output" class="output-area mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-5">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-soundwave"></i> Speech Synthesis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="tts-text" class="form-label">Text to Synthesize:</label>
+                            <textarea id="tts-text" class="form-control" rows="3" placeholder="Enter text to convert to speech..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="tts-voice" class="form-label">Voice Selection:</label>
+                            <select id="tts-voice" class="form-select">
+                                <option value="en-US-AriaNeural">Aria (Female)</option>
+                                <option value="en-US-GuyNeural">Guy (Male)</option>
+                                <option value="en-US-DavisNeural">Davis (Male)</option>
+                                <option value="en-US-JennyNeural">Jenny (Female)</option>
+                                <option value="en-US-AmberNeural">Amber (Female)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <button id="synthesize-speech" class="btn btn-primary">
+                                <i class="bi bi-play-circle"></i> Synthesize Speech
+                            </button>
+                            <button id="get-voices" class="btn btn-info">
+                                <i class="bi bi-list"></i> Get All Voices
+                            </button>
+                        </div>
+                        
+                        <!-- Quick TTS Tests -->
+                        <div class="mb-3">
+                            <h6>Quick Tests:</h6>
+                            <div class="btn-group-vertical w-100" role="group">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="quickTTSTest('Hello, welcome to your smart home!')">Test Welcome</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="quickTTSTest('Good night, sweet dreams!')">Test Goodnight</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="quickTTSTest('The lights have been turned on in the living room.')">Test Action</button>
+                            </div>
+                        </div>
+                        
+                        <div id="tts-output" class="output-area mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WebSocket Real-time Interaction -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-broadcast"></i> WebSocket Real-time Interaction</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <button id="ws-connect" class="btn btn-primary">
+                                <i class="bi bi-plug"></i> Connect WebSocket
+                            </button>
+                            <button id="ws-disconnect" class="btn btn-danger" disabled>
+                                <i class="bi bi-plug-fill"></i> Disconnect
+                            </button>
+                            <span id="ws-status" class="ms-3 badge bg-secondary">Not Connected</span>
+                        </div>
+                        <div class="mb-3">
+                            <label for="ws-message" class="form-label">Send Message:</label>
+                            <div class="input-group">
+                                <input type="text" id="ws-message" class="form-control" placeholder="Enter message to send...">
+                                <button id="ws-send" class="btn btn-success" disabled>
+                                    <i class="bi bi-send"></i> Send
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- WebSocket Command Templates -->
+                        <div class="mb-3">
+                            <h6>Quick Commands:</h6>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-outline-info btn-sm" onclick="sendWSCommand('ping')">Ping</button>
+                                <button class="btn btn-outline-info btn-sm" onclick="sendWSCommand('get_status')">Get Status</button>
+                                <button class="btn btn-outline-info btn-sm" onclick="sendWSCommand('test_text', 'Hello from WebSocket!')">Test Text</button>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h6>WebSocket Message History:</h6>
+                            <div id="ws-output" class="output-area"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug and Monitoring -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-bug"></i> Debug Tools</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-warning" onclick="clearAllOutputs()">
+                                <i class="bi bi-trash"></i> Clear All Outputs
+                            </button>
+                            <button class="btn btn-info" onclick="exportLogs()">
+                                <i class="bi bi-download"></i> Export Logs
+                            </button>
+                            <button class="btn btn-secondary" onclick="showSystemInfo()">
+                                <i class="bi bi-info-circle"></i> System Info
+                            </button>
+                        </div>
+                        <div id="debug-output" class="output-area mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-graph-up"></i> Performance Monitor</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <button class="btn btn-success" onclick="startPerformanceMonitor()">
+                                <i class="bi bi-play"></i> Start Monitoring
+                            </button>
+                            <button class="btn btn-danger" onclick="stopPerformanceMonitor()">
+                                <i class="bi bi-stop"></i> Stop Monitoring
+                            </button>
+                        </div>
+                        <div id="performance-metrics">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <h6>Response Time</h6>
+                                    <span id="response-time" class="badge bg-primary">-- ms</span>
+                                </div>
+                                <div class="col-4">
+                                    <h6>Success Rate</h6>
+                                    <span id="success-rate" class="badge bg-success">--%</span>
+                                </div>
+                                <div class="col-4">
+                                    <h6>Active Connections</h6>
+                                    <span id="active-connections" class="badge bg-info">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center mt-4 mb-5">
+            <p class="text-white-50">AI Voice Assistant Control Panel &copy; 2025</p>
+        </footer>
+    </div>
+
+    <!-- Developer Mode JavaScript -->
+    <script>
+        // Global variables for developer mode
+        let performanceMonitorInterval = null;
+        let testRequestCount = 0;
+        let successfulRequests = 0;
+
+        // Advanced parameter control
+        function toggleAdvancedParams() {
+            const params = document.getElementById('advanced-params');
+            params.style.display = params.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Scene execution from developer mode
+        function executeSceneFromDev(sceneName) {
+            const outputArea = document.getElementById('iot-output');
+            outputArea.innerHTML += `<div class="console-output">Executing scene: ${sceneName}...</div>`;
+            
+            fetch(`${API_URLS.coordinator}/execute_scene`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scene_name: sceneName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                outputArea.innerHTML += `<div class="console-output success">Scene executed successfully!<br>Results: ${JSON.stringify(data, null, 2)}</div>`;
+            })
+            .catch(error => {
+                outputArea.innerHTML += `<div class="console-output error">Scene execution failed: ${error.message}</div>`;
+            });
+        }
+
+        // Quick TTS test
+        function quickTTSTest(text) {
+            document.getElementById('tts-text').value = text;
+            synthesizeSpeech();
+        }
+
+        // WebSocket command helpers
+        function sendWSCommand(type, text = '') {
+            if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
+                document.getElementById('ws-output').innerHTML += '<div class="console-output error">WebSocket not connected</div>';
+                return;
+            }
+            
+            let messageObj;
+            if (type === 'test_text') {
+                messageObj = { type: 'text', text: text };
+            } else if (type === 'ping') {
+                messageObj = { type: 'ping' };
+            } else if (type === 'get_status') {
+                messageObj = { type: 'get_status' };
+            }
+            
+            wsConnection.send(JSON.stringify(messageObj));
+            document.getElementById('ws-output').innerHTML += `<div class="console-output">Command sent: ${type}</div>`;
+        }
+
+        // Debug tools
+        function clearAllOutputs() {
+            const outputs = ['models-output', 'status-output', 'chat-history', 'iot-output', 'tts-output', 'ws-output', 'debug-output'];
+            outputs.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) element.innerHTML = '';
+            });
+            document.getElementById('debug-output').innerHTML = '<div class="console-output success">All outputs cleared</div>';
+        }
+
+        function exportLogs() {
+            const outputs = ['models-output', 'status-output', 'iot-output', 'tts-output', 'ws-output'];
+            let logData = '';
+            
+            outputs.forEach(id => {
+                const element = document.getElementById(id);
+                if (element && element.textContent) {
+                    logData += `=== ${id.toUpperCase()} ===\n${element.textContent}\n\n`;
+                }
+            });
+            
+            const blob = new Blob([logData], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `smart-home-logs-${new Date().toISOString().split('T')[0]}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            document.getElementById('debug-output').innerHTML = '<div class="console-output success">Logs exported successfully</div>';
+        }
+
+        function showSystemInfo() {
+            const info = {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                cookieEnabled: navigator.cookieEnabled,
+                onLine: navigator.onLine,
+                timestamp: new Date().toISOString(),
+                apiUrls: API_URLS
+            };
+            
+            document.getElementById('debug-output').innerHTML = `<div class="console-output">System Information:<br><pre>${JSON.stringify(info, null, 2)}</pre></div>`;
+        }
+
+        // Performance monitoring
+        function startPerformanceMonitor() {
+            if (performanceMonitorInterval) return;
+            
+            performanceMonitorInterval = setInterval(async () => {
+                const startTime = Date.now();
+                testRequestCount++;
+                
+                try {
+                    const response = await fetch(`${API_URLS.coordinator}/`);
+                    if (response.ok) {
+                        successfulRequests++;
+                    }
+                    
+                    const responseTime = Date.now() - startTime;
+                    const successRate = ((successfulRequests / testRequestCount) * 100).toFixed(1);
+                    
+                    document.getElementById('response-time').textContent = `${responseTime} ms`;
+                    document.getElementById('success-rate').textContent = `${successRate}%`;
+                    document.getElementById('active-connections').textContent = wsConnection ? '1' : '0';
+                    
+                } catch (error) {
+                    const responseTime = Date.now() - startTime;
+                    document.getElementById('response-time').textContent = `${responseTime} ms`;
+                    
+                    const successRate = ((successfulRequests / testRequestCount) * 100).toFixed(1);
+                    document.getElementById('success-rate').textContent = `${successRate}%`;
+                }
+            }, 5000);
+            
+            document.getElementById('debug-output').innerHTML = '<div class="console-output success">Performance monitoring started</div>';
+        }
+
+        function stopPerformanceMonitor() {
+            if (performanceMonitorInterval) {
+                clearInterval(performanceMonitorInterval);
+                performanceMonitorInterval = null;
+                document.getElementById('debug-output').innerHTML = '<div class="console-output">Performance monitoring stopped</div>';
+            }
+        }
+
+        // Load test prompts
+        function loadTestPrompts() {
+            const testPrompts = [
+                "Turn on the living room lights",
+                "Set the bedroom temperature to 24 degrees",
+                "Execute sleep mode",
+                "What's the current temperature in the kitchen?",
+                "Turn off all lights in the house",
+                "Open the curtains halfway in the study",
+                "Start the exhaust fan in the bathroom for 30 minutes",
+                "Activate movie mode in the living room"
+            ];
+            
+            const randomPrompt = testPrompts[Math.floor(Math.random() * testPrompts.length)];
+            document.getElementById('user-input').value = randomPrompt;
+            
+            addMessageToChat('system', `Loaded test prompt: "${randomPrompt}"`);
+        }
+
+        // Enhanced device control with parameters
+        function sendIoTCommand() {
+            const device = document.getElementById('device-type').value;
+            const action = document.getElementById('device-action').value;
+            const location = document.getElementById('device-location').value;
+            const outputArea = document.getElementById('iot-output');
+            
+            // Check for advanced parameters
+            let parameters = {};
+            const paramValue = document.getElementById('param-value').value;
+            const paramType = document.getElementById('param-type').value;
+            
+            if (paramValue && document.getElementById('advanced-params').style.display !== 'none') {
+                parameters[paramType] = parseInt(paramValue);
+            }
+            
+            outputArea.innerHTML += `<div class="console-output">Sending command: ${device} (${location}) - ${action}${Object.keys(parameters).length ? ' with parameters: ' + JSON.stringify(parameters) : ''}...</div>`;
+            
+            fetch(`${API_URLS.iot}/control`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    commands: [{ device, action, location, parameters }]
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (response.ok) {
+                    outputArea.innerHTML += `<div class="console-output success">Command sent successfully!<br>Result: ${JSON.stringify(data, null, 2)}</div>`;
+                } else {
+                    outputArea.innerHTML += `<div class="console-output error">Command sending failed: ${data.error || 'Unknown error'}</div>`;
+                }
+            })
+            .catch(error => {
+                outputArea.innerHTML += `<div class="console-output error">Request error: ${error.message}</div>`;
+            });
+        }
+
+        // Check all services at once
+        function checkAllServicesStatus() {
+            const services = ['coordinator', 'stt', 'tts', 'iot', 'ollama'];
+            const outputArea = document.getElementById('status-output');
+            outputArea.innerHTML = '<div class="console-output">Checking all services...</div>';
+            
+            services.forEach(async (service, index) => {
+                setTimeout(() => {
+                    checkServiceStatus(service);
+                }, index * 500); // Stagger requests
+            });
+        }
+
+        // Enhanced WebSocket message handling
+        function handleWebSocketEnter(event) {
+            if (event.key === 'Enter') {
+                sendWebSocketMessage();
+            }
+        }
+
+        // Event listeners setup
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ollama model management
+            document.getElementById('check-models').addEventListener('click', checkOllamaModels);
+            document.getElementById('pull-model').addEventListener('click', pullOllamaModel);
+            
+            // Service status check
+            document.getElementById('check-coordinator').addEventListener('click', () => checkServiceStatus('coordinator'));
+            document.getElementById('check-stt').addEventListener('click', () => checkServiceStatus('stt'));
+            document.getElementById('check-tts').addEventListener('click', () => checkServiceStatus('tts'));
+            document.getElementById('check-iot').addEventListener('click', () => checkServiceStatus('iot'));
+            document.getElementById('check-ollama').addEventListener('click', () => checkServiceStatus('ollama'));
+            document.getElementById('check-all-services').addEventListener('click', checkAllServicesStatus);
+            
+            // AI interaction
+            document.getElementById('send-text').addEventListener('click', sendTextToAI);
+            document.getElementById('clear-chat').addEventListener('click', clearChat);
+            document.getElementById('user-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendTextToAI();
+                }
+            });
+            
+            // IoT device control
+            document.getElementById('send-command').addEventListener('click', sendIoTCommand);
+            document.getElementById('get-devices').addEventListener('click', getAllDevices);
+            document.getElementById('device-type').addEventListener('change', updateActionDropdown);
+            
+            // Text-to-speech
+            document.getElementById('synthesize-speech').addEventListener('click', synthesizeSpeech);
+            document.getElementById('get-voices').addEventListener('click', getAvailableVoices);
+            
+            // WebSocket interaction
+            document.getElementById('ws-connect').addEventListener('click', connectWebSocket);
+            document.getElementById('ws-disconnect').addEventListener('click', disconnectWebSocket);
+            document.getElementById('ws-send').addEventListener('click', sendWebSocketMessage);
+            document.getElementById('ws-message').addEventListener('keypress', handleWebSocketEnter);
+            
+            // Initialize
+            updateActionDropdown();
+            
+            // Auto-check service status on load
+            setTimeout(checkAllServicesStatus, 1000);
+            
+            console.log('AI Voice Assistant Control Panel loaded');
+        });
+    </script>
+</body>
+</html>
