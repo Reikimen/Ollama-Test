@@ -7,7 +7,7 @@ const char* password = "casa-ce-gagarin-public-service";
 
 // 服务器配置
 const char* server_host = "10.129.113.188";
-const int server_port = 8080;
+const int server_port = 8002;
 
 // WebSocket客户端
 WebSocketsClient webSocket;
