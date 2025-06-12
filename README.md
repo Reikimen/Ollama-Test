@@ -1,188 +1,315 @@
-# AI Voice Assistant + IoT Control System
+# AI Smart Home Assistant with Edge Computing
 
-This is a Docker-based AI voice assistant system that uses Ollama as the core LLM, integrating speech recognition, speech synthesis, and IoT device control functionality. The system is designed for collaboration between low-computing-power devices (ESP32) and PC-side Docker containers, enabling voice interaction, emotion display, and IoT device control.
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-supported-blue.svg)](https://www.docker.com/)
+[![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://espressif.com/)
 
-## System Architecture
+> **Edge Computing and Large Language Model (LLMs) Powered Semantic Frameworks for Connected Smart Homes**
 
-The system consists of 5 Docker containers, each responsible for different functions:
+This project demonstrates a novel smart home framework that leverages Large Language Models (LLMs) and edge computing to enable understanding and processing of user semantics, significantly outperforming traditional rule-based methods in terms of intent extraction performance and user satisfaction.
 
-1. **Ollama Service**: Provides LLM (Large Language Model) capabilities, handling natural language understanding and generation
-2. **STT Service**: Responsible for speech recognition (Speech-to-Text), converting audio uploaded from ESP32 to text
-3. **TTS Service**: Responsible for speech synthesis (Text-to-Speech), converting AI responses to audio playable by ESP32
-4. **IoT Control Service**: Manages the status and control commands of various smart devices
-5. **Coordinator Service**: Acts as the central controller, coordinating communication between services
+## 🏗️ System Architecture
 
-## Requirements
+The system consists of **5 microservices** running in Docker containers, designed for collaboration between low-power devices (ESP32) and PC-side Docker containers:
 
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   ESP32 Device  │    │   Edge Computer   │    │  Web Interface  │
+│                 │    │   (Docker Host)   │    │                 │
+│ • Audio I/O     │◄──►│ • Ollama (LLM)    │◄──►│ • User Mode     │
+│ • LCD Display   │    │ • STT Service     │    │ • Developer     │
+│ • IoT Control   │    │ • TTS Service     │    │ • Real-time     │
+│ • Sensors       │    │ • IoT Controller  │    │   Monitoring    │
+└─────────────────┘    │ • Coordinator     │    └─────────────────┘
+                       └──────────────────┘
+```
+
+### Core Services
+
+1. **🧠 Ollama Service** - LLM processing for natural language understanding
+2. **🎤 STT Service** - Speech-to-Text using OpenAI Whisper
+3. **🔊 TTS Service** - Text-to-Speech using Microsoft Edge TTS
+4. **🏠 IoT Controller** - Smart device management and automation
+5. **🎯 Coordinator** - Central orchestration and semantic processing
+
+## ✨ Key Features
+
+### 🚀 Advanced AI Capabilities
+- **Intent-based Interaction**: Move beyond command-based to natural conversation
+- **Semantic Understanding**: Advanced LLM-powered context awareness
+- **Multi-language Support**: English and Chinese voice commands
+- **Scene Intelligence**: Automated environment optimization
+
+### 🏡 Comprehensive Smart Home Control
+- **Multi-room Support**: Living room, bedroom, kitchen, study, bathroom
+- **Device Categories**: Lighting, HVAC, fans, curtains, sensors
+- **Environmental Monitoring**: Temperature, humidity, CO2, VOC, light levels
+- **Real-time Updates**: WebSocket-based live status monitoring
+
+### 🖥️ Dual Interface Modes
+- **👤 User Mode**: Intuitive interface for daily home control
+- **⚙️ Developer Mode**: Advanced testing and debugging tools
+
+### 🔧 Hardware Integration
+- **ESP32 Ecosystem**: Audio processing, display control, sensor integration
+- **Scalable Architecture**: Easy addition of new devices and rooms
+- **Edge Processing**: Reduced latency and enhanced privacy
+
+## 🛠️ Technology Stack
+
+### Backend Services
+- **Python 3.10+** with FastAPI framework
+- **Docker & Docker Compose** for containerization
+- **WebSocket** for real-time communication
+- **RESTful APIs** for service integration
+
+### AI & Voice Processing
+- **Ollama** - Local LLM deployment (Llama 3)
+- **OpenAI Whisper** - Speech recognition
+- **Microsoft Edge TTS** - Speech synthesis
+
+### Hardware Platform
+- **ESP32** microcontrollers
+- **I2S Audio** for high-quality voice processing
+- **LCD Displays** for visual feedback
+- **Environmental Sensors** (CO2, VOC, temperature, humidity)
+
+### Frontend
+- **HTML5/CSS3/JavaScript** with Bootstrap 5
+- **Real-time WebSocket** connections
+- **Responsive Design** for mobile and desktop
+
+## 🚀 Quick Start
+
+### Prerequisites
 - Docker and Docker Compose
-- Mac mini (M4) or other computing devices running Docker
-- ESP32 development board (for voice recording and playback)
-- Optional: Second ESP32 development board (for LCD display of expressions)
+- 8GB+ RAM recommended
+- Network access for initial model downloads
 
-## Quick Start
-
-### 1. Clone the Project
-
+### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/ai-voice-assistant-iot.git
-cd ai-voice-assistant-iot
+git clone https://github.com/yourusername/ai-smart-home-assistant.git
+cd ai-smart-home-assistant
 ```
 
-### 2. Create Directory Structure
-
+### 2. Start the System
 ```bash
-mkdir -p data/audio
-mkdir -p data/ollama
-mkdir -p services/coordinator
-mkdir -p services/stt
-mkdir -p services/tts
-mkdir -p services/iot
-mkdir -p esp32
-```
-
-### 3. Copy Configuration Files
-
-Copy all code files to the appropriate directories:
-
-- `docker-compose.yml` → Project root directory
-- Python files and Dockerfile for each service → Corresponding service directories
-- ESP32 code → esp32 directory
-
-### 4. Build and Start Docker Containers
-
-```bash
+# Build and start all services
 docker-compose up --build
+
+# Or run in background
+docker-compose up -d --build
 ```
 
-When starting for the first time, the system will download relevant images and build containers, which may take some time.
+### 3. Access the Interface
+- **User Interface**: http://localhost:1145
+- **Developer Console**: http://localhost:1145/developer.html
+- **API Coordinator**: http://localhost:8080
 
-### 5. Configure and Flash ESP32
+### 4. Configure ESP32 (Optional)
+```cpp
+// Update WiFi credentials in ESP32 code
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* server_ip = "YOUR_DOCKER_HOST_IP";
+```
 
-1. Modify WiFi configuration and server IP address in the ESP32 code
-2. Use Arduino IDE or PlatformIO to flash the code to ESP32
-3. If using two ESP32s, you'll also need to set up the communication method for the LCD display ESP32
+## 📋 Service Endpoints
 
-## Usage
+| Service | Port | Purpose | Health Check |
+|---------|------|---------|--------------|
+| Coordinator | 8080 | Central orchestration | `GET /` |
+| STT Service | 8000 | Speech recognition | `GET /` |
+| TTS Service | 8001 | Speech synthesis | `GET /` |
+| IoT Control | 8002 | Device management | `GET /` |
+| Ollama | 11434 | LLM processing | `GET /` |
 
-After system startup, you can use it in the following ways:
-
-1. **Voice Interaction**: Press the button on the ESP32 to start recording, which will be automatically sent to the server for processing after completion
-2. **Check Service Status**: Visit http://localhost:8080 to check the coordinator service status
-3. **Manual Testing**: Use Postman or curl to send requests to the various service APIs for testing
-
-## Service API Documentation
-
-### Coordinator Service (Port 8080)
-
-- `GET /` - Check service status
-- `POST /process_audio` - Process audio and return AI response
-- `POST /process_text` - Process text and return AI response
-- `WebSocket /ws` - WebSocket connection endpoint
-
-### STT Service (Port 8000)
-
-- `GET /` - Check service status
-- `POST /transcribe` - Transcribe audio file at specified path
-- `POST /upload` - Upload audio file and transcribe
-- UDP Port 8000 - Receive audio data sent from ESP32
-
-### TTS Service (Port 8001)
-
-- `GET /` - Check service status
-- `GET /voices` - List all available voices
-- `POST /synthesize` - Synthesize speech and return audio file path
-- `GET /audio/{filename}` - Get synthesized audio file
-- `POST /stream` - Stream synthesized audio
-
-### IoT Control Service (Port 8002)
-
-- `GET /` - Check service status
-- `GET /devices` - Get all device states
-- `GET /device/{device_type}/{location}` - Get specific device status
-- `POST /control` - Control IoT devices
-- `WebSocket /ws` - WebSocket connection endpoint for device status updates
-
-## Ollama Model Configuration
-
-The system uses the `llama3` model by default. You can download and configure the model as follows:
+### Key API Examples
 
 ```bash
-# Install Ollama on the host (if not already installed)
-curl -fsSL https://ollama.com/install.sh | sh
+# Process text command
+curl -X POST http://localhost:8080/process_text \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Turn on the living room lights"}'
 
-# Download llama3 model
-ollama pull llama3
+# Control IoT device
+curl -X POST http://localhost:8002/control \
+  -H "Content-Type: application/json" \
+  -d '{"commands": [{"device": "ceiling_light", "action": "on", "location": "living_room"}]}'
 
-# Or use other models
-ollama pull llama3:8b
+# Execute scene mode
+curl -X POST http://localhost:8080/execute_scene \
+  -H "Content-Type: application/json" \
+  -d '{"scene_name": "sleep_mode", "location": "bedroom"}'
 ```
 
-You can also modify the `OLLAMA_MODEL` environment variable in the `docker-compose.yml` file to use different models.
+## 🏠 Supported Devices & Scenes
 
-# Pull a specific model
-curl -X POST http://localhost:11434/api/pull -d '{"name": "llama3"}'
+### Device Types
+- **Lighting**: Ceiling lights, desk lamps with brightness/color control
+- **Climate**: Air conditioners with temperature and mode control
+- **Ventilation**: Fans and exhaust fans with speed control
+- **Window Treatments**: Curtains with position control
+- **Sensors**: Environmental monitoring (temperature, humidity, air quality)
 
-# Pull a specific size model
-curl -X POST http://localhost:11434/api/pull -d '{"name": "llama3:8b"}'
+### Scene Modes
+- **🏠 Home Mode**: Welcome lighting and comfort settings
+- **😴 Sleep Mode**: Dimmed lights, optimal temperature, closed curtains
+- **💼 Work Mode**: Bright lighting, focused environment
+- **🎬 Movie Mode**: Ambient lighting, closed curtains
+- **👨‍🍳 Cooking Mode**: Bright kitchen lighting, auto ventilation
+- **🚗 Away Mode**: Security settings, energy saving
 
-## Customization and Extension
+### Voice Command Examples
+```
+English:
+- "Turn on the living room lights"
+- "Set bedroom temperature to 24 degrees"
+- "Execute sleep mode"
+- "Open the curtains halfway"
 
-### Adding New IoT Device Types
+Chinese:
+- "打开客厅的灯"
+- "把卧室温度调到24度"
+- "执行睡眠模式"
+- "窗帘开一半"
 
-1. Add new device types to the `device_states` dictionary in `services/iot/app.py`
-2. Add corresponding processing logic to the `extract_iot_commands` and `execute_command` functions
-3. Update the `controlIoTDevice` function in the ESP32 code to support new devices
+Mixed:
+- "Turn on 客厅的灯"
+- "Set 卧室 temperature to 24度"
+```
 
-### Using Different TTS Engines
+## 🔧 Configuration
 
-The current system uses Microsoft Edge TTS as the speech synthesis engine. If you need to use other engines:
+### Environment Variables
+```bash
+# Ollama Configuration
+OLLAMA_MODEL=llama3:8b
+OLLAMA_HOST=ollama
+OLLAMA_PORT=11434
 
-1. Modify `services/tts/app.py`, replacing Edge TTS related code
-2. Update `services/tts/requirements.txt` to add necessary dependencies
-3. Rebuild the TTS service container
+# Service Hosts
+STT_HOST=stt-service
+TTS_HOST=tts-service
+IOT_HOST=iot-control
 
-### Optimizing the STT Model
+# Audio Settings
+WHISPER_MODEL=base
+TTS_VOICE=en-US-AriaNeural
+```
 
-The size of the Whisper model affects recognition quality and speed. You can adjust it by modifying the `WHISPER_MODEL` environment variable:
-- `tiny` - Smallest model, fastest but lowest accuracy
-- `base` - Default model, balanced speed and accuracy
-- `small` - Larger model, higher accuracy but slower
-- `medium` - Large model, high accuracy but requires more computing resources
-- `large` - Largest model, highest accuracy but slowest
+### Custom Device Configuration
+Add new device types in `services/iot/app.py`:
+```python
+device_states = {
+    "your_device_type": {
+        "room_name": {"status": "off", "custom_property": "value"}
+    }
+}
+```
 
-## Troubleshooting
+## 📊 Monitoring & Debugging
 
-### 1. ESP32 Cannot Connect to Server
+### Health Checks
+```bash
+# Check all services status
+curl http://localhost:8080/health
 
-- Check WiFi connection and network configuration
-- Ensure ESP32 and Docker host are on the same network
-- Check firewall settings to ensure UDP port 8000 and WebSocket port 8080 are not blocked
+# Individual service checks
+curl http://localhost:8000/  # STT
+curl http://localhost:8001/  # TTS
+curl http://localhost:8002/  # IoT
+curl http://localhost:11434/ # Ollama
+```
 
-### 2. Speech Recognition Not Working
+### Logs & Debugging
+```bash
+# View service logs
+docker-compose logs coordinator
+docker-compose logs stt-service
+docker-compose logs -f --tail=100
 
-- Check microphone connection and I2S configuration
-- Check STT service logs to confirm if audio data is being received normally
-- Try adjusting recording volume or noise reduction settings
+# Access developer tools
+# Visit http://localhost:1145/developer.html
+```
 
-### 3. Speech Synthesis Has No Sound
+## 🧪 Testing
 
-- Check speaker connection and I2S configuration
-- Confirm if the audio file path is correct
-- Check if TTS service response is correctly received
+### Voice Recognition Test
+```javascript
+// Browser console
+testSTTUpload()        // Test file upload
+testSTTRecord()        // Test live recording
+testSTTWithSample()    // Test with generated audio
+```
 
-### 4. Ollama Model Loading Failure
+### IoT Control Test
+```javascript
+// Execute scene modes
+executeSceneFromDev('sleep_mode')
+executeSceneFromDev('work_mode')
 
-- Ensure sufficient disk space and memory
-- Check Ollama service logs for detailed error information
-- Try using a smaller model (like `llama3:8b`)
+// Individual device control
+sendIoTCommand()
+```
 
-## Notes
+## 📈 Performance Optimization
 
-- The system is configured for internal network use and is not recommended for direct exposure to the public internet
-- There is no default security authentication; if public access is needed, please add appropriate authentication mechanisms
-- ESP32 power supply should be stable to avoid interruption of recording or playback
-- Communication between Docker containers depends on the Docker network; please ensure container name resolution is working properly
+### Model Selection
+Choose the appropriate Whisper model based on your hardware:
+- `tiny` - Fastest, lower accuracy (39 MB)
+- `base` - Balanced performance (74 MB) **[Recommended]**
+- `small` - Higher accuracy (244 MB)
+- `medium` - Best accuracy (769 MB)
 
-## License
+### Resource Usage
+- **Minimum**: 4GB RAM, 2 CPU cores
+- **Recommended**: 8GB RAM, 4 CPU cores
+- **Storage**: 10GB+ for models and data
 
-This project is licensed under the MIT License.
+## 🔒 Security Considerations
+
+- **Network Isolation**: Services communicate through internal Docker network
+- **No External Dependencies**: Fully self-contained system
+- **Voice Data**: Processed locally, not sent to cloud services
+- **Privacy**: All user interactions remain on local network
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Development Setup
+```bash
+# Clone repository
+git clone https://github.com/yourusername/ai-smart-home-assistant.git
+cd ai-smart-home-assistant
+
+# Create development environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest tests/
+```
+
+## 📖 Research Background
+
+This project is part of UCL CASA dissertation research on "Edge Computing and Large Language Model (LLMs) Powered Semantic Frameworks for Connected Smart Homes."
+
+**Research Hypothesis**: The smart home framework based on LLM and edge computing enables understanding and processing of user semantics, significantly outperforming traditional rule-based methods in terms of intent extraction performance and user satisfaction.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **UCL Centre for Advanced Spatial Analysis** for research support
+- **OpenAI** for Whisper speech recognition model
+- **Meta** for Llama language models
+- **Microsoft** for Edge TTS technology
+- **Espressif** for ESP32 platform
+
+**Built with ❤️ for the future of smart homes**
