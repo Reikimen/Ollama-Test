@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -97,7 +98,11 @@ device_states = {
             "voc": 15,
             "motion": False,
             "light_level": 300,
-            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S")
+            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "real_data": False,
+            "last_real_update": None,
+            "source": None,
+            "device_id": None
         },
         "bedroom": {
             "temperature": 22.8,
@@ -106,7 +111,11 @@ device_states = {
             "voc": 12,
             "motion": False,
             "light_level": 150,
-            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S")
+            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "real_data": False,
+            "last_real_update": None,
+            "source": None,
+            "device_id": None
         },
         "kitchen": {
             "temperature": 24.2,
@@ -115,7 +124,11 @@ device_states = {
             "voc": 25,
             "motion": False,
             "light_level": 400,
-            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S")
+            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "real_data": False,
+            "last_real_update": None,
+            "source": None,
+            "device_id": None
         },
         "study": {
             "temperature": 23.1,
@@ -124,7 +137,11 @@ device_states = {
             "voc": 18,
             "motion": False,
             "light_level": 350,
-            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S")
+            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "real_data": False,
+            "last_real_update": None,
+            "source": None,
+            "device_id": None
         },
         "bathroom": {
             "temperature": 24.8,
@@ -133,7 +150,11 @@ device_states = {
             "voc": 20,
             "motion": False,
             "light_level": 200,
-            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S")
+            "last_update": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "real_data": False,
+            "last_real_update": None,
+            "source": None,
+            "device_id": None
         }
     }
 }
@@ -209,6 +230,13 @@ async def update_environmental_impact(device, action, location, current_state):
     if not sensors:
         return
     
+    # Skip environmental impact if we have real sensor data
+    if sensors.get("real_data", False):
+        last_real_update = sensors.get("last_real_update", 0)
+        time_since_update = time.time() - last_real_update
+        if time_since_update < 300:  # 5 minutes
+            return
+    
     # Simulate environmental changes based on device operations
     if device == "ceiling_light" or device == "desk_lamp":
         if action == "on" or current_state.get("status") == "on":
@@ -256,41 +284,6 @@ async def update_environmental_impact(device, action, location, current_state):
     
     # Broadcast sensor updates
     await broadcast_sensor_update(location)
-
-async def send_mqtt_command(device, action, location, parameters):
-    """Send device control command via MQTT"""
-    if not MQTT_ENABLED:
-        return
-    
-    try:
-        import paho.mqtt.client as mqtt
-        
-        # MQTT configuration
-        client = mqtt.Client()
-        if MQTT_USER and MQTT_PASSWORD:
-            client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-        
-        # Create message
-        topic = f"smarthome/{device}/{location}"
-        payload = {
-            "action": action,
-            "parameters": parameters,
-            "timestamp": time.time(),
-            "device_id": f"{device}_{location}"
-        }
-        
-        # Convert to JSON
-        message = json.dumps(payload)
-        
-        # Connect and publish
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        client.publish(topic, message)
-        client.disconnect()
-        
-        logger.info(f"MQTT command sent: {topic} - {message}")
-    
-    except Exception as e:
-        logger.error(f"MQTT send failed: {str(e)}")
 
 def set_device_timer(device, location, minutes):
     """Set a timer for a device"""
@@ -349,6 +342,54 @@ async def get_sensor_data(location: str):
         "sensors": sensors[location]
     }
 
+@app.get("/sensors/{location}/info")
+async def get_sensor_info(location: str):
+    """Get detailed sensor information including data source"""
+    sensors = device_states.get("sensors", {})
+    if location not in sensors:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No sensors found for location: {location}"}
+        )
+    
+    sensor_data = sensors[location].copy()
+    
+    # 添加额外的信息
+    info = {
+        "location": location,
+        "data": sensor_data,
+        "data_source": "real" if sensor_data.get("real_data", False) else "simulated",
+        "last_real_update": sensor_data.get("last_real_update"),
+        "time_since_real_update": time.time() - sensor_data.get("last_real_update", 0) if sensor_data.get("last_real_update") else None,
+        "source_device": sensor_data.get("source"),
+        "device_id": sensor_data.get("device_id")
+    }
+    
+    return info
+
+@app.post("/sensors/{location}/reset_simulation")
+async def reset_sensor_simulation(location: str):
+    """Reset sensor to simulation mode (for testing)"""
+    sensors = device_states.get("sensors", {})
+    if location not in sensors:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No sensors found for location: {location}"}
+        )
+    
+    # 重置为模拟模式
+    sensors[location]["real_data"] = False
+    sensors[location].pop("last_real_update", None)
+    sensors[location].pop("source", None)
+    sensors[location].pop("device_id", None)
+    
+    logger.info(f"Sensor simulation reset for {location}")
+    
+    return {
+        "message": f"Sensor simulation reset for {location}",
+        "location": location
+    }
+
 @app.post("/control")
 async def control_devices(request: IoTControlRequest):
     """Control IoT devices with enhanced support"""
@@ -369,22 +410,28 @@ async def control_devices(request: IoTControlRequest):
                 })
                 continue
             
-            # Check if device exists
-            if device not in device_states or location not in device_states[device]:
-                results.append({
-                    "status": "error",
-                    "message": f"Device does not exist: {device} at {location}",
-                    "command": cmd
-                })
-                continue
+            # Special case for sensors - check if location exists
+            if device == "sensors":
+                if location not in device_states.get("sensors", {}):
+                    results.append({
+                        "status": "error",
+                        "message": f"Sensor location does not exist: {location}",
+                        "command": cmd
+                    })
+                    continue
+            else:
+                # Check if device exists for non-sensor devices
+                if device not in device_states or location not in device_states[device]:
+                    results.append({
+                        "status": "error",
+                        "message": f"Device does not exist: {device} at {location}",
+                        "command": cmd
+                    })
+                    continue
             
             # Execute enhanced control command
             result = await execute_enhanced_command(device, action, location, parameters)
             results.append(result)
-            
-            # If MQTT is enabled, send control command
-            if MQTT_ENABLED:
-                await send_mqtt_command(device, action, location, parameters)
             
         except Exception as e:
             logger.error(f"Error executing command: {str(e)}")
@@ -417,15 +464,69 @@ async def execute_scene(request: SceneRequest):
 async def execute_enhanced_command(device, action, location, parameters):
     """Enhanced device control with full parameter support"""
     try:
-        # Get current device state
+        # 特殊处理：传感器数据更新
+        if device == "sensors" and action == "data_update":
+            # 更新传感器数据而不是设备状态
+            if location in device_states.get("sensors", {}):
+                # 更新传感器数据
+                sensor_data = device_states["sensors"][location]
+                
+                # 更新所有传感器参数
+                if "temperature" in parameters:
+                    sensor_data["temperature"] = round(float(parameters["temperature"]), 1)
+                if "humidity" in parameters:
+                    sensor_data["humidity"] = round(float(parameters["humidity"]), 1)
+                if "co2" in parameters:
+                    sensor_data["co2"] = int(parameters["co2"])
+                if "voc" in parameters:
+                    sensor_data["voc"] = int(parameters["voc"])
+                if "light_level" in parameters:
+                    sensor_data["light_level"] = int(parameters["light_level"])
+                if "motion" in parameters:
+                    sensor_data["motion"] = bool(parameters["motion"])
+                
+                # 更新时间戳和来源信息
+                sensor_data["last_update"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                sensor_data["source"] = parameters.get("source", "unknown")
+                sensor_data["device_id"] = parameters.get("device_id", "unknown")
+                
+                # 标记为真实数据，避免被模拟数据覆盖
+                sensor_data["real_data"] = True
+                sensor_data["last_real_update"] = time.time()
+                
+                logger.info(f"✅ Updated REAL sensor data for {location}: temp={parameters.get('temperature')}°C, humidity={parameters.get('humidity')}%, CO2={parameters.get('co2')}ppm, VOC={parameters.get('voc')}ppb")
+                
+                # 广播传感器更新
+                await broadcast_sensor_update(location)
+                
+                return {
+                    "status": "success",
+                    "device": device,
+                    "location": location,
+                    "action": action,
+                    "parameters": parameters,
+                    "current_state": sensor_data
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Sensor location not found: {location}",
+                    "device": device,
+                    "location": location,
+                    "action": action
+                }
+    
+        # 原有的设备控制逻辑（保持不变）
         current_state = device_states[device][location].copy()
         
         # Execute different operations based on device type and action
-        if device == "ceiling_light" or device == "light":  # 兼容性支持
+        if device == "ceiling_light" or device == "light":
             if action == "on":
                 current_state["status"] = "on"
             elif action == "off":
                 current_state["status"] = "off"
+            elif action == "toggle":
+                current_state["status"] = "off" if current_state["status"] == "on" else "on"
             elif action == "brighten":
                 current_state["brightness"] = min(100, current_state["brightness"] + 20)
                 current_state["status"] = "on"
@@ -447,14 +548,8 @@ async def execute_enhanced_command(device, action, location, parameters):
                 current_state["status"] = "on"
             elif action == "off":
                 current_state["status"] = "off"
-            elif action == "reading_mode":
-                current_state["status"] = "on"
-                current_state["brightness"] = 70
-                current_state["color_temp"] = 4000
-            elif action == "night_mode":
-                current_state["status"] = "on"
-                current_state["brightness"] = 20
-                current_state["color_temp"] = 2700
+            elif action == "toggle":
+                current_state["status"] = "off" if current_state["status"] == "on" else "on"
             elif action == "set_brightness" and "brightness" in parameters:
                 current_state["brightness"] = max(0, min(100, parameters["brightness"]))
                 current_state["status"] = "on" if parameters["brightness"] > 0 else "off"
@@ -464,71 +559,30 @@ async def execute_enhanced_command(device, action, location, parameters):
                 current_state["status"] = "on"
             elif action == "off":
                 current_state["status"] = "off"
-            elif action == "speed_up":
-                current_state["speed"] = min(5, current_state["speed"] + 1)
-                current_state["status"] = "on"
-            elif action == "speed_down":
-                current_state["speed"] = max(0, current_state["speed"] - 1)
-                if current_state["speed"] == 0:
-                    current_state["status"] = "off"
-                else:
-                    current_state["status"] = "on"
+            elif action == "toggle":
+                current_state["status"] = "off" if current_state["status"] == "on" else "on"
             elif action == "set_speed" and "speed" in parameters:
-                current_state["speed"] = max(0, min(5, parameters["speed"]))
-                current_state["status"] = "on" if parameters["speed"] > 0 else "off"
+                current_state["speed"] = max(1, min(5, parameters["speed"]))
+                current_state["status"] = "on"
             elif action == "toggle_oscillation":
-                current_state["oscillation"] = not current_state.get("oscillation", False)
-                current_state["status"] = "on"
-        
-        elif device == "exhaust_fan":
-            if action == "on":
-                current_state["status"] = "on"
-            elif action == "off":
-                current_state["status"] = "off"
-                current_state["timer"] = 0
-            elif action == "speed_up":
-                current_state["speed"] = min(3, current_state["speed"] + 1)
-                current_state["status"] = "on"
-            elif action == "speed_down":
-                current_state["speed"] = max(1, current_state["speed"] - 1)
-            elif action == "set_timer" and "timer" in parameters:
-                current_state["timer"] = max(0, min(120, parameters["timer"]))  # 最大2小时
-                current_state["status"] = "on" if parameters["timer"] > 0 else current_state["status"]
-                if parameters["timer"] > 0:
-                    set_device_timer(device, location, parameters["timer"])
-            elif action == "timer_30":
-                current_state["timer"] = 30
-                current_state["status"] = "on"
-                set_device_timer(device, location, 30)
+                current_state["oscillation"] = not current_state["oscillation"]
         
         elif device == "ac":
             if action == "on":
                 current_state["status"] = "on"
             elif action == "off":
                 current_state["status"] = "off"
-            elif action == "temp_up":
-                current_state["temperature"] = min(30, current_state["temperature"] + 1)
-                current_state["status"] = "on"
-            elif action == "temp_down":
-                current_state["temperature"] = max(16, current_state["temperature"] - 1)
-                current_state["status"] = "on"
+            elif action == "toggle":
+                current_state["status"] = "off" if current_state["status"] == "on" else "on"
             elif action == "set_temperature" and "temperature" in parameters:
-                current_state["temperature"] = max(16, min(30, parameters["temperature"]))
+                current_state["temperature"] = max(16, min(32, parameters["temperature"]))
                 current_state["status"] = "on"
-            elif action == "set_mode" and "mode" in parameters:
-                if parameters["mode"] in ["cool", "heat", "fan", "auto", "dry"]:
-                    current_state["mode"] = parameters["mode"]
-                    current_state["status"] = "on"
-            elif action == "set_fan_speed" and "fan_speed" in parameters:
-                if parameters["fan_speed"] in ["auto", "low", "medium", "high"]:
-                    current_state["fan_speed"] = parameters["fan_speed"]
-                    current_state["status"] = "on"
         
         elif device == "curtain":
-            if action == "on" or action == "open":
+            if action == "open":
                 current_state["status"] = "open"
                 current_state["position"] = 100
-            elif action == "off" or action == "close":
+            elif action == "close":
                 current_state["status"] = "closed"
                 current_state["position"] = 0
             elif action == "set_position" and "position" in parameters:
@@ -569,177 +623,102 @@ async def execute_scene_mode(scene_name, location=None):
     scene_commands = []
     
     if scene_name == "home_mode":
-        # 回家模式
         scene_commands = [
             {"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {"brightness": 70}},
             {"device": "ac", "action": "on", "location": "living_room", "parameters": {"temperature": 25}},
-            {"device": "curtain", "action": "set_position", "location": "living_room", "parameters": {"position": 50}}
         ]
-    
     elif scene_name == "sleep_mode":
-        # 睡眠模式
-        target_location = location or "bedroom"
         scene_commands = [
-            {"device": "ceiling_light", "action": "off", "location": target_location},
-            {"device": "desk_lamp", "action": "off", "location": target_location},
-            {"device": "ac", "action": "set_temperature", "location": target_location, "parameters": {"temperature": 24}},
-            {"device": "curtain", "action": "close", "location": target_location},
-            # 关闭其他房间主要灯光
-            {"device": "ceiling_light", "action": "off", "location": "living_room"},
-            {"device": "ceiling_light", "action": "off", "location": "kitchen"},
-            {"device": "ceiling_light", "action": "off", "location": "study"}
-        ]
-    
-    elif scene_name == "work_mode":
-        # 工作模式
-        target_location = location or "study"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": target_location, "parameters": {"brightness": 80, "color_temp": 4500}},
-            {"device": "desk_lamp", "action": "on", "location": target_location, "parameters": {"brightness": 70, "color_temp": 4000}},
-            {"device": "curtain", "action": "set_position", "location": target_location, "parameters": {"position": 30}},
-            {"device": "ac", "action": "on", "location": target_location, "parameters": {"temperature": 23}}
-        ]
-    
-    elif scene_name == "cooking_mode":
-        # 烹饪模式
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {"brightness": 100, "color_temp": 5000}},
-            {"device": "exhaust_fan", "action": "on", "location": "kitchen", "parameters": {"speed": 2}}
-        ]
-    
-    elif scene_name == "movie_mode":
-        # 观影模式
-        target_location = location or "living_room"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "set_brightness", "location": target_location, "parameters": {"brightness": 15}},
-            {"device": "curtain", "action": "close", "location": target_location},
-            {"device": "ac", "action": "on", "location": target_location, "parameters": {"temperature": 22, "mode": "cool"}}
-        ]
-    
-    elif scene_name == "bath_mode":
-        # 洗浴模式
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": "bathroom", "parameters": {"brightness": 80}},
-            {"device": "exhaust_fan", "action": "on", "location": "bathroom", "parameters": {"speed": 2, "timer": 30}}
-        ]
-    
-    elif scene_name == "morning_mode":
-        # 早晨模式 (新增)
-        target_location = location or "bedroom"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": target_location, "parameters": {"brightness": 60, "color_temp": 4000}},
-            {"device": "curtain", "action": "set_position", "location": target_location, "parameters": {"position": 80}},
-            {"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {"brightness": 70}},
-            {"device": "ac", "action": "set_temperature", "location": target_location, "parameters": {"temperature": 23}}
-        ]
-    
-    elif scene_name == "away_mode":
-        # 离家模式 (新增)
-        scene_commands = [
-            {"device": "ceiling_light", "action": "off", "location": "living_room"},
             {"device": "ceiling_light", "action": "off", "location": "bedroom"},
-            {"device": "ceiling_light", "action": "off", "location": "kitchen"},
-            {"device": "ceiling_light", "action": "off", "location": "study"},
-            {"device": "ceiling_light", "action": "off", "location": "bathroom"},
             {"device": "desk_lamp", "action": "off", "location": "bedroom"},
-            {"device": "desk_lamp", "action": "off", "location": "study"},
-            {"device": "fan", "action": "off", "location": "living_room"},
-            {"device": "fan", "action": "off", "location": "bedroom"},
-            {"device": "fan", "action": "off", "location": "study"},
-            {"device": "ac", "action": "set_temperature", "location": "living_room", "parameters": {"temperature": 26}},
-            {"device": "ac", "action": "set_temperature", "location": "bedroom", "parameters": {"temperature": 26}},
-            {"device": "curtain", "action": "close", "location": "living_room"},
-            {"device": "curtain", "action": "close", "location": "bedroom"}
         ]
-    
-    elif scene_name == "relax_mode":
-        # 休闲模式 (新增)
-        target_location = location or "living_room"
+    elif scene_name == "work_mode":
         scene_commands = [
-            {"device": "ceiling_light", "action": "set_brightness", "location": target_location, "parameters": {"brightness": 40, "color_temp": 2700}},
-            {"device": "fan", "action": "on", "location": target_location, "parameters": {"speed": 1}},
-            {"device": "ac", "action": "on", "location": target_location, "parameters": {"temperature": 24}},
-            {"device": "curtain", "action": "set_position", "location": target_location, "parameters": {"position": 50}}
+            {"device": "ceiling_light", "action": "on", "location": "study", "parameters": {"brightness": 90}},
+            {"device": "desk_lamp", "action": "on", "location": "study", "parameters": {"brightness": 80}},
         ]
     
-    else:
-        # 未知场景模式
-        return [{"status": "error", "message": f"Unknown scene mode: {scene_name}"}]
-    
-    # 执行场景命令
+    # Execute scene commands
     results = []
     for cmd in scene_commands:
         try:
-            result = await execute_enhanced_command(
-                cmd["device"], 
-                cmd["action"], 
-                cmd["location"], 
-                cmd.get("parameters", {})
-            )
+            device = cmd["device"]
+            action = cmd["action"]
+            location = cmd["location"]
+            parameters = cmd.get("parameters", {})
+            
+            result = await execute_enhanced_command(device, action, location, parameters)
             results.append(result)
+            
         except Exception as e:
+            logger.error(f"Error in scene command: {str(e)}")
             results.append({
-                "status": "error", 
-                "command": cmd, 
-                "error": str(e)
+                "status": "error",
+                "message": str(e),
+                "command": cmd
             })
     
     return results
 
-# Timer management for timed devices
 async def manage_device_timers():
-    """Manage device timers (for exhaust fans, etc.)"""
+    """Manage device timers in background"""
     while True:
-        await asyncio.sleep(60)  # Check every minute
-        
-        current_time = time.time()
-        expired_timers = []
-        
-        for timer_id, timer_info in active_timers.items():
-            if current_time >= timer_info["expire_time"]:
-                # Timer expired, turn off device
-                device = timer_info["device"]
-                location = timer_info["location"]
-                
-                try:
-                    result = await execute_enhanced_command(device, "off", location, {})
-                    logger.info(f"Timer expired: {device} at {location} turned off")
+        try:
+            current_time = time.time()
+            expired_timers = []
+            
+            for timer_id, timer_info in active_timers.items():
+                if current_time >= timer_info["expire_time"]:
+                    device = timer_info["device"]
+                    location = timer_info["location"]
+                    
+                    if device in device_states and location in device_states[device]:
+                        device_states[device][location]["status"] = "off"
+                        device_states[device][location]["timer"] = 0
+                        
+                        await broadcast_device_update(device, location)
+                        logger.info(f"Timer expired: {device} at {location} turned off")
+                    
                     expired_timers.append(timer_id)
-                except Exception as e:
-                    logger.error(f"Failed to turn off {device} at {location}: {str(e)}")
-        
-        # Remove expired timers
-        for timer_id in expired_timers:
-            del active_timers[timer_id]
+            
+            for timer_id in expired_timers:
+                del active_timers[timer_id]
+            
+            await asyncio.sleep(10)
+            
+        except Exception as e:
+            logger.error(f"Error in timer management: {str(e)}")
+            await asyncio.sleep(30)
 
+# WebSocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Enhanced WebSocket connection handler"""
+    """WebSocket endpoint for real-time communication"""
     await websocket.accept()
-    client_id = id(websocket)
+    client_id = str(uuid.uuid4())
     connected_devices[client_id] = websocket
     
     logger.info(f"WebSocket client {client_id} connected")
     
     try:
-        # Send current device states and sensor data
+        # Send initial state to new client
         await websocket.send_json({
             "type": "init",
-            "devices": {k: v for k, v in device_states.items() if k != "sensors"},
-            "sensors": device_states.get("sensors", {}),
+            "devices": device_states,
             "timestamp": time.time(),
             "message": "Connected to IoT Control Service"
         })
         
-        # Continuously listen for commands
+        # Handle incoming messages
         while True:
             data = await websocket.receive_text()
+            message = json.loads(data)
+            
             try:
-                message = json.loads(data)
                 command_type = message.get("type")
+                logger.info(f"Received WebSocket command: {command_type} from {client_id}")
                 
                 if command_type == "control":
-                    # Process control commands
                     commands = message.get("commands", [])
                     results = []
                     
@@ -759,27 +738,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "timestamp": time.time()
                     })
                 
-                elif command_type == "get_status":
-                    # Get specific device status
-                    device = message.get("device")
-                    location = message.get("location")
-                    
-                    if device and location and device in device_states and location in device_states[device]:
-                        await websocket.send_json({
-                            "type": "device_status",
-                            "device": device,
-                            "location": location,
-                            "state": device_states[device][location],
-                            "timestamp": time.time()
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Device not found"
-                        })
-                
                 elif command_type == "get_sensors":
-                    # Get sensor data
                     location = message.get("location")
                     if location:
                         sensors = device_states.get("sensors", {}).get(location, {})
@@ -796,21 +755,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "timestamp": time.time()
                         })
                 
-                elif command_type == "execute_scene":
-                    # Execute scene mode
-                    scene_name = message.get("scene_name")
-                    location = message.get("location")
-                    
-                    results = await execute_scene_mode(scene_name, location)
-                    await websocket.send_json({
-                        "type": "scene_results",
-                        "scene": scene_name,
-                        "results": results,
-                        "timestamp": time.time()
-                    })
-                
                 elif command_type == "ping":
-                    # Heartbeat ping
                     await websocket.send_json({
                         "type": "pong",
                         "timestamp": time.time()
@@ -840,61 +785,75 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Simulate realistic environmental changes
 async def simulate_environmental_changes():
-    """Simulate realistic environmental sensor changes"""
+    """Simulate realistic environmental sensor changes - but preserve real data"""
     while True:
         await asyncio.sleep(30)  # Update every 30 seconds
         
         for location, sensors in device_states.get("sensors", {}).items():
-            # Natural temperature fluctuation
+            # 检查是否有真实数据，如果有且是最近的（5分钟内），则不覆盖
+            if sensors.get("real_data", False):
+                last_real_update = sensors.get("last_real_update", 0)
+                time_since_update = time.time() - last_real_update
+                
+                # 如果真实数据是5分钟内的，跳过模拟更新
+                if time_since_update < 300:  # 5分钟 = 300秒
+                    logger.info(f"🔒 Preserving REAL sensor data for {location} (updated {time_since_update:.0f}s ago)")
+                    continue
+                else:
+                    # 超过5分钟没有真实数据，恢复模拟
+                    logger.info(f"⏰ Real data for {location} is old ({time_since_update:.0f}s), resuming simulation")
+                    sensors["real_data"] = False
+            
+            # 执行原有的模拟逻辑
             current_temp = sensors.get("temperature", 23)
             
-            # Time-based temperature changes
+            # 基于时间的温度变化
             hour = time.localtime().tm_hour
-            if 6 <= hour <= 18:  # Daytime
+            if 6 <= hour <= 18:  # 白天
                 target_temp = 24 + random.uniform(-1, 2)
-            else:  # Nighttime
+            else:  # 夜间
                 target_temp = 22 + random.uniform(-1, 1)
             
-            # Gradual temperature change
+            # 渐进式温度变化
             temp_diff = target_temp - current_temp
             sensors["temperature"] = round(current_temp + temp_diff * 0.1, 1)
             
-            # Natural humidity changes
+            # 自然湿度变化
             sensors["humidity"] = max(40, min(80, 
                 sensors.get("humidity", 55) + random.uniform(-2, 2)))
             
-            # CO2 natural variation with time-based patterns
-            base_co2 = 400 if 22 <= hour or hour <= 6 else 450  # Lower at night
+            # CO2自然变化，带有基于时间的模式
+            base_co2 = 400 if 22 <= hour or hour <= 6 else 450  # 夜间较低
             sensors["co2"] = max(350, min(1000,
                 base_co2 + random.uniform(-20, 40)))
             
-            # VOC slight variation
+            # VOC轻微变化
             sensors["voc"] = max(5, min(50,
                 sensors.get("voc", 15) + random.uniform(-2, 3)))
             
-            # Light level based on time and weather simulation
-            if 6 <= hour <= 8:  # Morning
+            # 基于时间和天气模拟的光照级别
+            if 6 <= hour <= 8:  # 早晨
                 sensors["light_level"] = 200 + hour * 50 + random.uniform(-50, 50)
-            elif 8 <= hour <= 17:  # Daytime
+            elif 8 <= hour <= 17:  # 白天
                 base_light = 500 + random.uniform(-100, 200)
-                # Simulate cloudy/sunny weather
+                # 模拟多云/晴天天气
                 weather_factor = random.choice([0.7, 0.8, 0.9, 1.0, 1.1])
                 sensors["light_level"] = int(base_light * weather_factor)
-            elif 17 <= hour <= 20:  # Evening
+            elif 17 <= hour <= 20:  # 傍晚
                 sensors["light_level"] = max(50, 400 - (hour - 17) * 80 + random.uniform(-30, 30))
-            else:  # Night
+            else:  # 夜间
                 sensors["light_level"] = max(10, 50 + random.uniform(-20, 20))
             
-            # Occasional motion detection simulation
-            if random.random() < 0.1:  # 10% chance
+            # 偶尔的运动检测模拟
+            if random.random() < 0.1:  # 10% 概率
                 sensors["motion"] = True
-                # Motion detection lasts for 2 minutes
+                # 运动检测持续2分钟
                 asyncio.create_task(reset_motion_detection(location))
             
-            # Update timestamp
+            # 更新时间戳
             sensors["last_update"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         
-        # Broadcast sensor updates
+        # 广播传感器更新
         for location in device_states.get("sensors", {}):
             await broadcast_sensor_update(location)
 
@@ -908,7 +867,7 @@ async def reset_motion_detection(location):
 @app.on_event("startup")
 async def startup_event():
     """Event handler for application startup"""
-    logger.info("IoT Control Service starting up...")
+    logger.info("🚀 IoT Control Service starting up...")
     
     # Start environmental simulation
     asyncio.create_task(simulate_environmental_changes())
@@ -917,19 +876,19 @@ async def startup_event():
     asyncio.create_task(manage_device_timers())
     
     # Initialize device states
-    logger.info(f"Initialized {len(device_states)} device categories")
+    logger.info(f"📊 Initialized {len(device_states)} device categories")
     for device_type, locations in device_states.items():
         if device_type != "sensors":
             logger.info(f"  {device_type}: {len(locations)} locations")
         else:
             logger.info(f"  sensors: {len(locations)} locations")
     
-    logger.info("IoT Control Service startup complete")
+    logger.info("✅ IoT Control Service startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Event handler for application shutdown"""
-    logger.info("IoT Control Service shutting down...")
+    logger.info("🛑 IoT Control Service shutting down...")
     
     # Cancel all active timers
     active_timers.clear()
@@ -943,7 +902,7 @@ async def shutdown_event():
     
     connected_devices.clear()
     
-    logger.info("IoT Control Service shutdown complete")
+    logger.info("✅ IoT Control Service shutdown complete")
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8002, reload=False)
