@@ -135,9 +135,9 @@ void sendSensorData() {
   }
   
   // 生成真实的传感器数据
-  float temperature = 23.5 + random(-50, 50) / 100.0; // 23.0-24.0°C
-  float humidity = 55.0 + random(-200, 200) / 100.0;  // 53.0-57.0%
-  int co2 = 420 + random(-50, 80);                     // 370-500 ppm
+  float temperature = 23.5 + 10*random(-50, 50) / 100.0; // 23.0-24.0°C
+  float humidity = 55.0 + 5*random(-200, 200) / 100.0;  // 53.0-57.0%
+  int co2 = 420 + 10*random(0, 120);                     // 370-500 ppm
   int voc = 15 + random(-10, 25);                      // 5-40 ppb
   int light_level = 300 + random(-100, 300);          // 200-600 lux
   bool motion = (random(0, 100) < 10);                // 10% 概率有人
