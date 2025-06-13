@@ -25,6 +25,18 @@
 #define AHT21_MEASURE_CMD 0xAC
 #define AHT21_SOFT_RESET_CMD 0xBA
 
+// 全局传感器数据变量
+float g_temperature = 23.5;    // 温度 (°C)
+float g_humidity = 55.0;       // 湿度 (%)
+int g_co2 = 420;              // CO2 (ppm)
+int g_voc = 15;               // VOC (ppb)
+int g_light_level = 300;      // 光照强度 (lux)
+bool g_motion = false;        // 运动检测
+bool g_sensor_data_valid = false;  // 数据有效性标志
+
+// 数据更新时间戳
+unsigned long g_last_sensor_update = 0;
+
 void scanI2CDevices() {
   Serial.println("扫描I2C设备...");
   byte error, address;
@@ -44,6 +56,7 @@ void scanI2CDevices() {
   
   if (deviceCount == 0) {
     Serial.println("未发现I2C设备");
+    g_sensor_data_valid = false;
   } else {
     Serial.print("发现 ");
     Serial.print(deviceCount);
@@ -59,9 +72,13 @@ void initSensors() {
   Wire.write(AHT21_INIT_CMD);
   Wire.write(0x08);
   Wire.write(0x00);
-  Wire.endTransmission();
+  byte error = Wire.endTransmission();
+  if (error == 0) {
+    Serial.println("✅ AHT21 初始化完成");
+  } else {
+    Serial.println("❌ AHT21 初始化失败");
+  }
   delay(10);
-  Serial.println("AHT21 初始化完成");
   #endif
   
   #if ENABLE_ENS160
@@ -69,20 +86,29 @@ void initSensors() {
   Wire.beginTransmission(ENS160_ADDR);
   Wire.write(ENS160_OPMODE);
   Wire.write(0x02); // 标准操作模式
-  Wire.endTransmission();
+  byte error2 = Wire.endTransmission();
+  if (error2 == 0) {
+    Serial.println("✅ ENS160 初始化完成");
+  } else {
+    Serial.println("❌ ENS160 初始化失败");
+  }
   delay(100);
-  Serial.println("ENS160 初始化完成");
   #endif
 }
 
 #if ENABLE_AHT21
-void readAHT21() {
+bool readAHT21() {
   // 发送测量命令
   Wire.beginTransmission(AHT21_ADDR);
   Wire.write(AHT21_MEASURE_CMD);
   Wire.write(0x33);
   Wire.write(0x00);
-  Wire.endTransmission();
+  byte error = Wire.endTransmission();
+  
+  if (error != 0) {
+    Serial.println("❌ AHT21 发送命令失败");
+    return false;
+  }
   
   delay(80); // 等待测量完成
   
@@ -94,6 +120,12 @@ void readAHT21() {
       data[i] = Wire.read();
     }
     
+    // 检查状态位
+    if (data[0] & 0x80) {
+      Serial.println("⚠️ AHT21 设备忙碌，稍后重试");
+      return false;
+    }
+    
     // 计算湿度
     uint32_t humidity_raw = ((uint32_t)data[1] << 12) | ((uint32_t)data[2] << 4) | (data[3] >> 4);
     float humidity = (humidity_raw * 100.0) / 1048576.0;
@@ -102,23 +134,42 @@ void readAHT21() {
     uint32_t temperature_raw = (((uint32_t)data[3] & 0x0F) << 16) | ((uint32_t)data[4] << 8) | data[5];
     float temperature = (temperature_raw * 200.0) / 1048576.0 - 50.0;
     
-    Serial.print("AHT21 - 温度: ");
-    Serial.print(temperature, 1);
-    Serial.print("°C, 湿度: ");
-    Serial.print(humidity, 1);
-    Serial.println("%");
+    // 数据有效性检查
+    if (temperature > -40 && temperature < 85 && humidity >= 0 && humidity <= 100) {
+      // 更新全局变量
+      g_temperature = temperature;
+      g_humidity = humidity;
+      
+      Serial.print("✅ AHT21 - 温度: ");
+      Serial.print(temperature, 1);
+      Serial.print("°C, 湿度: ");
+      Serial.print(humidity, 1);
+      Serial.println("%");
+      
+      return true;
+    } else {
+      Serial.println("❌ AHT21 数据超出正常范围");
+      return false;
+    }
   } else {
-    Serial.println("AHT21 读取失败");
+    Serial.println("❌ AHT21 读取数据失败");
+    return false;
   }
 }
 #endif
 
 #if ENABLE_ENS160
-void readENS160() {
+bool readENS160() {
   // 读取数据状态
   Wire.beginTransmission(ENS160_ADDR);
   Wire.write(ENS160_DATA_STATUS);
-  Wire.endTransmission();
+  byte error = Wire.endTransmission();
+  
+  if (error != 0) {
+    Serial.println("❌ ENS160 通信失败");
+    return false;
+  }
+  
   Wire.requestFrom(ENS160_ADDR, 1);
   
   if (Wire.available()) {
@@ -130,55 +181,150 @@ void readENS160() {
       Wire.write(ENS160_DATA_AQI);
       Wire.endTransmission();
       Wire.requestFrom(ENS160_ADDR, 1);
-      uint8_t aqi = Wire.read();
+      uint8_t aqi = Wire.available() ? Wire.read() : 0;
       
       // 读取TVOC
       Wire.beginTransmission(ENS160_ADDR);
       Wire.write(ENS160_DATA_TVOC);
       Wire.endTransmission();
       Wire.requestFrom(ENS160_ADDR, 2);
-      uint16_t tvoc = Wire.read() | (Wire.read() << 8);
+      uint16_t tvoc = 0;
+      if (Wire.available() >= 2) {
+        tvoc = Wire.read() | (Wire.read() << 8);
+      }
       
       // 读取CO2
       Wire.beginTransmission(ENS160_ADDR);
       Wire.write(ENS160_DATA_ECO2);
       Wire.endTransmission();
       Wire.requestFrom(ENS160_ADDR, 2);
-      uint16_t co2 = Wire.read() | (Wire.read() << 8);
+      uint16_t co2 = 400; // 默认值
+      if (Wire.available() >= 2) {
+        co2 = Wire.read() | (Wire.read() << 8);
+      }
       
-      Serial.print("ENS160 - AQI: ");
-      Serial.print(aqi);
-      Serial.print(", TVOC: ");
-      Serial.print(tvoc);
-      Serial.print(" ppb, CO2: ");
-      Serial.print(co2);
-      Serial.println(" ppm");
+      // 数据有效性检查
+      if (co2 > 300 && co2 < 5000 && tvoc < 10000) {
+        // 更新全局变量
+        g_co2 = co2;
+        g_voc = tvoc;
+        
+        Serial.print("✅ ENS160 - AQI: ");
+        Serial.print(aqi);
+        Serial.print(", TVOC: ");
+        Serial.print(tvoc);
+        Serial.print(" ppb, CO2: ");
+        Serial.print(co2);
+        Serial.println(" ppm");
+        
+        return true;
+      } else {
+        Serial.println("❌ ENS160 数据超出正常范围");
+        return false;
+      }
     } else {
-      Serial.println("ENS160 数据未准备就绪");
+      Serial.println("⚠️ ENS160 数据未准备就绪");
+      return false;
     }
   } else {
-    Serial.println("ENS160 读取失败");
+    Serial.println("❌ ENS160 读取状态失败");
+    return false;
   }
 }
 #endif
 
 #if ENABLE_VEML7700
-void readVEML7700() {
+bool readVEML7700() {
   // 读取环境光数据
   Wire.beginTransmission(VEML7700_ADDR);
   Wire.write(0x04); // ALS寄存器
-  Wire.endTransmission();
+  byte error = Wire.endTransmission();
+  
+  if (error != 0) {
+    Serial.println("❌ VEML7700 通信失败");
+    return false;
+  }
   
   Wire.requestFrom(VEML7700_ADDR, 2);
   if (Wire.available() >= 2) {
     uint16_t raw_data = Wire.read() | (Wire.read() << 8);
     float lux = raw_data * 0.0576; // 转换为lux
     
-    Serial.print("VEML7700 - 光照强度: ");
-    Serial.print(lux, 2);
-    Serial.println(" lux");
+    // 数据有效性检查
+    if (lux >= 0 && lux < 120000) {
+      // 更新全局变量
+      g_light_level = (int)lux;
+      
+      Serial.print("✅ VEML7700 - 光照强度: ");
+      Serial.print(lux, 2);
+      Serial.println(" lux");
+      
+      return true;
+    } else {
+      Serial.println("❌ VEML7700 数据超出正常范围");
+      return false;
+    }
   } else {
-    Serial.println("VEML7700 读取失败");
+    Serial.println("❌ VEML7700 读取数据失败");
+    return false;
   }
 }
 #endif
+
+bool readAllSensors() {
+  bool anyDataRead = false;
+  
+  Serial.println("📊 读取所有传感器数据...");
+  
+  #if ENABLE_AHT21
+  if (readAHT21()) {
+    anyDataRead = true;
+  }
+  #endif
+  
+  #if ENABLE_ENS160
+  if (readENS160()) {
+    anyDataRead = true;
+  }
+  #endif
+  
+  #if ENABLE_VEML7700
+  if (readVEML7700()) {
+    anyDataRead = true;
+  }
+  #endif
+  
+  // 模拟运动检测（可以替换为真实的PIR传感器）
+  g_motion = (random(0, 100) < 5); // 5% 概率检测到运动
+  
+  if (anyDataRead) {
+    g_sensor_data_valid = true;
+    g_last_sensor_update = millis();
+    
+    Serial.println("✅ 传感器数据更新完成");
+    Serial.printf("🌡️ 当前数据汇总 - 温度: %.1f°C, 湿度: %.1f%%, CO2: %dppm, VOC: %dppb, 光照: %dlux, 运动: %s\n", 
+                  g_temperature, g_humidity, g_co2, g_voc, g_light_level, g_motion ? "是" : "否");
+  } else {
+    Serial.println("⚠️ 没有成功读取到任何传感器数据");
+  }
+  
+  return anyDataRead;
+}
+
+// 获取传感器数据是否有效
+bool isSensorDataValid() {
+  return g_sensor_data_valid && (millis() - g_last_sensor_update < 60000); // 1分钟内的数据认为有效
+}
+
+// 打印当前所有传感器数据
+void printAllSensorData() {
+  Serial.println("📊 当前传感器数据状态:");
+  Serial.printf("   🌡️ 温度: %.1f°C\n", g_temperature);
+  Serial.printf("   💧 湿度: %.1f%%\n", g_humidity);
+  Serial.printf("   🌬️ CO2: %d ppm\n", g_co2);
+  Serial.printf("   ☁️ VOC: %d ppb\n", g_voc);
+  Serial.printf("   ☀️ 光照: %d lux\n", g_light_level);
+  Serial.printf("   🚶 运动: %s\n", g_motion ? "检测到" : "无");
+  Serial.printf("   ✅ 数据有效: %s\n", isSensorDataValid() ? "是" : "否");
+  Serial.printf("   🕐 上次更新: %lu ms前\n", millis() - g_last_sensor_update);
+}

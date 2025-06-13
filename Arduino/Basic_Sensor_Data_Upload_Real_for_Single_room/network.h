@@ -16,9 +16,6 @@ WebSocketsClient webSocket;
 // 状态
 bool wifiConnected = false;
 bool wsConnected = false;
-unsigned long lastSensorTime = 0;
-const unsigned long SENSOR_INTERVAL = 30000; // 30秒发送一次
-
 
 void connectWiFi() {
   Serial.printf("📶 Connecting to: %s\n", ssid);
@@ -50,13 +47,36 @@ void sendSensorData() {
     return;
   }
   
-  // 生成真实的传感器数据
-  float temperature = 23.5 + 10*random(-50, 50) / 100.0; // 23.0-24.0°C
-  float humidity = 55.0 + 5*random(-200, 200) / 100.0;  // 53.0-57.0%
-  int co2 = 420 + 10*random(0, 120);                     // 370-500 ppm
-  int voc = 15 + random(-10, 25);                      // 5-40 ppb
-  int light_level = 300 + random(-100, 300);          // 200-600 lux
-  bool motion = (random(0, 100) < 10);                // 10% 概率有人
+  // 使用真实传感器数据，如果数据无效则使用备用值
+  float temperature, humidity;
+  int co2, voc, light_level;
+  bool motion;
+  
+  if (g_sensor_data_valid && isSensorDataValid()) {
+    // 使用真实传感器数据
+    temperature = g_temperature;
+    humidity = g_humidity;
+    co2 = g_co2;
+    voc = g_voc;
+    light_level = g_light_level;
+    motion = g_motion;
+    
+    Serial.printf("📊 Using REAL sensor data for room: %s\n", TARGET_ROOM);
+    Serial.printf("   🌡️ 真实温度: %.1f°C, 湿度: %.1f%%\n", temperature, humidity);
+    Serial.printf("   🌬️ 真实CO2: %dppm, VOC: %dppb, 光照: %dlux\n", co2, voc, light_level);
+  } else {
+    // 使用模拟数据作为备用
+    temperature = 23.5 + random(-50, 50) / 100.0; // 23.0-24.0°C
+    humidity = 55.0 + random(-200, 200) / 100.0;  // 53.0-57.0%
+    co2 = 420 + random(-50, 80);                  // 370-500 ppm
+    voc = 15 + random(-10, 25);                   // 5-40 ppb
+    light_level = 300 + random(-100, 300);        // 200-600 lux
+    motion = (random(0, 100) < 10);               // 10% 概率有人
+    
+    Serial.printf("⚠️ Using SIMULATED data for room: %s (real sensor data not available)\n", TARGET_ROOM);
+    Serial.printf("   🎲 模拟温度: %.1f°C, 湿度: %.1f%%\n", temperature, humidity);
+    Serial.printf("   🎲 模拟CO2: %dppm, VOC: %dppb, 光照: %dlux\n", co2, voc, light_level);
+  }
 
   // 只发送指定房间的传感器数据
   DynamicJsonDocument doc(1024);
@@ -76,19 +96,24 @@ void sendSensorData() {
   params["light_level"] = light_level;
   params["motion"] = motion;
   params["device_id"] = WiFi.macAddress();
-  params["source"] = "esp8266";
+  params["source"] = g_sensor_data_valid ? "esp8266_real_sensors" : "esp8266_simulated";
+  params["data_type"] = g_sensor_data_valid ? "real" : "simulated";
   params["timestamp"] = millis();
   
   String message;
   serializeJson(doc, message);
   
-  Serial.printf("🌡️ Uploading sensor data for room: %s\n", TARGET_ROOM);
-  Serial.printf("   📊 Temp: %.1f°C, Humidity: %.1f%%, CO2: %dppm, VOC: %dppb\n", 
-                temperature, humidity, co2, voc);
-  Serial.printf("📤 Sending: %s\n", message.c_str());
+  Serial.printf("📤 准备上传传感器数据到房间: %s\n", TARGET_ROOM);
+  Serial.printf("📊 数据类型: %s\n", g_sensor_data_valid ? "真实传感器数据" : "模拟数据");
+  Serial.printf("📤 发送消息: %s\n", message.c_str());
   
   bool result = webSocket.sendTXT(message);
-  Serial.printf("📤 Upload result: %s\n", result ? "SUCCESS" : "FAILED");
+  Serial.printf("📤 上传结果: %s\n", result ? "成功" : "失败");
+  
+  // 如果是真实数据，额外打印确认信息
+  if (g_sensor_data_valid && isSensorDataValid()) {
+    Serial.printf("✅ 成功上传真实传感器数据到服务器！\n");
+  }
 }
 
 void handleMessage(const char* message) {
@@ -131,11 +156,16 @@ void handleMessage(const char* message) {
         String status = result["status"].as<String>();
         String device = result["device"].as<String>();
         String action = result["action"].as<String>();
+        String dataType = result["parameters"]["data_type"].as<String>();
         
         Serial.printf("   📋 %s %s: %s\n", device.c_str(), action.c_str(), status.c_str());
         
         if (status == "success") {
-          Serial.printf("   ✅ Sensor data for %s successfully processed!\n", TARGET_ROOM);
+          if (dataType == "real") {
+            Serial.printf("   ✅ 真实传感器数据成功上传到房间 %s！\n", TARGET_ROOM);
+          } else {
+            Serial.printf("   ⚠️ 模拟传感器数据已上传到房间 %s\n", TARGET_ROOM);
+          }
         } else {
           Serial.printf("   ❌ Failed: %s\n", result["message"].as<String>().c_str());
         }
@@ -148,12 +178,18 @@ void handleMessage(const char* message) {
     
     if (doc["sensors"].is<JsonObject>()) {
       JsonObject sensors = doc["sensors"];
+      bool realData = sensors["real_data"].as<bool>();
+      String source = sensors["source"].as<String>();
+      
       Serial.printf("   🌡️ Current data - Temp: %.1f°C, Humidity: %.1f%%\n", 
                     sensors["temperature"].as<float>(), 
                     sensors["humidity"].as<float>());
       Serial.printf("   💨 CO2: %dppm, VOC: %dppb\n",
                     sensors["co2"].as<int>(),
                     sensors["voc"].as<int>());
+      Serial.printf("   📊 Data source: %s (%s)\n", 
+                    source.c_str(), 
+                    realData ? "Real" : "Simulated");
     }
     
   } else if (type == "device_update") {
@@ -178,12 +214,15 @@ void sendPing() {
   doc["device_id"] = WiFi.macAddress();
   doc["location"] = TARGET_ROOM;  // 指定房间
   doc["timestamp"] = millis();
+  doc["sensor_status"] = g_sensor_data_valid ? "active" : "inactive";
   
   String message;
   serializeJson(doc, message);
   
   webSocket.sendTXT(message);
-  Serial.printf("🏓 Ping sent for room: %s\n", TARGET_ROOM);
+  Serial.printf("🏓 Ping sent for room: %s (sensors: %s)\n", 
+                TARGET_ROOM, 
+                g_sensor_data_valid ? "活跃" : "不活跃");
 }
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
@@ -198,6 +237,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       wsConnected = true;
       Serial.printf("[%lus] 🟢 Connected to IoT Service: %s\n", elapsed, payload);
+      Serial.printf("[%lus] 📊 Sensor status: %s\n", elapsed, g_sensor_data_valid ? "真实传感器可用" : "仅模拟数据");
       
       // 连接成功后等待3秒再发送第一条消息
       delay(3000);
@@ -234,4 +274,5 @@ void initWebSocket() {
   webSocket.setReconnectInterval(10000);
   
   Serial.printf("⚙️ WebSocket configured for room: %s\n", TARGET_ROOM);
+  Serial.printf("📊 Sensor data source: %s\n", g_sensor_data_valid ? "真实传感器" : "模拟数据");
 }
