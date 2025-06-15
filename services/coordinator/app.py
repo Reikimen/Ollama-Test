@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Environment variable configuration
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
 OLLAMA_PORT = os.getenv("OLLAMA_PORT", "11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")  # 默认模型，可被动态切换
 STT_HOST = os.getenv("STT_HOST", "stt-service")
 STT_PORT = os.getenv("STT_PORT", "8000")
 TTS_HOST = os.getenv("TTS_HOST", "tts-service")
@@ -32,7 +32,80 @@ TTS_PORT = os.getenv("TTS_PORT", "8001")
 IOT_HOST = os.getenv("IOT_HOST", "iot-control")
 IOT_PORT = os.getenv("IOT_PORT", "8002")
 
-# Enhanced device states - 对应Week 1设计
+# 全局模型管理
+class ModelManager:
+    def __init__(self):
+        self.current_model = OLLAMA_MODEL
+        self.available_models = []
+        self.model_info = {}
+        self.last_model_check = 0
+        self.model_check_interval = 30  # 30秒检查一次可用模型
+    
+    async def get_available_models(self, force_refresh=False):
+        """获取可用模型列表"""
+        current_time = time.time()
+        
+        # 如果需要强制刷新或超过检查间隔，重新获取模型列表
+        if force_refresh or (current_time - self.last_model_check) > self.model_check_interval:
+            try:
+                ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/tags"
+                response = requests.get(ollama_url, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    models = data.get("models", [])
+                    
+                    self.available_models = []
+                    self.model_info = {}
+                    
+                    for model in models:
+                        model_name = model.get("name", "")
+                        if model_name:
+                            self.available_models.append(model_name)
+                            self.model_info[model_name] = {
+                                "name": model_name,
+                                "size": model.get("size", 0),
+                                "modified_at": model.get("modified_at", ""),
+                                "digest": model.get("digest", ""),
+                                "details": model.get("details", {})
+                            }
+                    
+                    self.last_model_check = current_time
+                    logger.info(f"📋 Found {len(self.available_models)} available models: {self.available_models}")
+                
+                else:
+                    logger.error(f"Failed to get models: HTTP {response.status_code}")
+                    
+            except Exception as e:
+                logger.error(f"Error getting available models: {str(e)}")
+        
+        return self.available_models
+    
+    def set_current_model(self, model_name):
+        """设置当前使用的模型"""
+        if model_name in self.available_models:
+            old_model = self.current_model
+            self.current_model = model_name
+            logger.info(f"🔄 Model switched: {old_model} → {model_name}")
+            return True
+        else:
+            logger.warning(f"⚠️ Model not available: {model_name}")
+            return False
+    
+    def get_current_model(self):
+        """获取当前模型"""
+        return self.current_model
+    
+    def get_model_info(self, model_name=None):
+        """获取模型详细信息"""
+        if model_name is None:
+            model_name = self.current_model
+        return self.model_info.get(model_name, {})
+
+# 全局模型管理器实例
+model_manager = ModelManager()
+
+# Enhanced device states - 保持原有的设备状态
 device_states = {
     # 天花板灯 - 支持调光和色温
     "ceiling_light": {
@@ -127,7 +200,7 @@ device_states = {
 }
 
 # Create FastAPI application
-app = FastAPI(title="AI Voice Assistant Coordinator Service")
+app = FastAPI(title="AI Voice Assistant Coordinator Service - Enhanced")
 
 # Configure CORS
 app.add_middleware(
@@ -149,6 +222,12 @@ class AudioRequest(BaseModel):
 class TextRequest(BaseModel):
     text: str
 
+class ModelSwitchRequest(BaseModel):
+    model_name: str
+
+class ModelPullRequest(BaseModel):
+    model_name: str
+
 class ContextualRequest(BaseModel):
     text: str
     user_context: Optional[Dict[str, Any]] = None
@@ -163,9 +242,207 @@ class DeviceRegistration(BaseModel):
     device_info: Dict[str, Any]
     capabilities: List[str]
 
+# ==================== 新增：模型管理API ====================
+
+@app.get("/models")
+async def get_available_models():
+    """获取所有可用的Ollama模型"""
+    try:
+        models = await model_manager.get_available_models(force_refresh=True)
+        current_model = model_manager.get_current_model()
+        
+        model_list = []
+        for model_name in models:
+            model_info = model_manager.get_model_info(model_name)
+            model_list.append({
+                "name": model_name,
+                "size": model_info.get("size", 0),
+                "size_mb": round(model_info.get("size", 0) / (1024 * 1024), 1),
+                "modified_at": model_info.get("modified_at", ""),
+                "is_current": model_name == current_model,
+                "details": model_info.get("details", {})
+            })
+        
+        return {
+            "current_model": current_model,
+            "available_models": model_list,
+            "total_models": len(models)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting models: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error getting models: {str(e)}"}
+        )
+
+@app.post("/models/switch")
+async def switch_model(request: ModelSwitchRequest):
+    """切换当前使用的模型"""
+    try:
+        # 先获取最新的模型列表
+        available_models = await model_manager.get_available_models(force_refresh=True)
+        
+        if request.model_name not in available_models:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Model not found: {request.model_name}"}
+            )
+        
+        # 切换模型
+        success = model_manager.set_current_model(request.model_name)
+        
+        if success:
+            # 测试新模型是否正常工作
+            test_result = await test_model_functionality(request.model_name)
+            
+            if test_result["success"]:
+                # 广播模型切换事件到所有连接的客户端
+                await broadcast_model_switch(request.model_name)
+                
+                return {
+                    "success": True,
+                    "message": f"Successfully switched to model: {request.model_name}",
+                    "current_model": request.model_name,
+                    "test_result": test_result
+                }
+            else:
+                # 测试失败，回滚到之前的模型
+                logger.error(f"Model test failed for {request.model_name}, keeping current model")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": f"Model {request.model_name} failed functionality test",
+                        "test_result": test_result
+                    }
+                )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Failed to switch to model: {request.model_name}"}
+            )
+    
+    except Exception as e:
+        logger.error(f"Error switching model: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error switching model: {str(e)}"}
+        )
+
+@app.post("/models/pull")
+async def pull_model(request: ModelPullRequest):
+    """下载新的Ollama模型"""
+    try:
+        ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/pull"
+        
+        # 开始下载模型
+        response = requests.post(ollama_url, json={"name": request.model_name}, timeout=300)
+        
+        if response.status_code == 200:
+            # 刷新模型列表
+            await model_manager.get_available_models(force_refresh=True)
+            
+            return {
+                "success": True,
+                "message": f"Successfully pulled model: {request.model_name}",
+                "model_name": request.model_name
+            }
+        else:
+            return JSONResponse(
+                status_code=response.status_code,
+                content={"error": f"Failed to pull model: {response.text}"}
+            )
+    
+    except Exception as e:
+        logger.error(f"Error pulling model: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error pulling model: {str(e)}"}
+        )
+
+@app.get("/models/current")
+async def get_current_model():
+    """获取当前使用的模型信息"""
+    current_model = model_manager.get_current_model()
+    model_info = model_manager.get_model_info(current_model)
+    
+    return {
+        "current_model": current_model,
+        "model_info": model_info,
+        "size_mb": round(model_info.get("size", 0) / (1024 * 1024), 1) if model_info.get("size") else 0
+    }
+
+async def test_model_functionality(model_name):
+    """测试模型是否正常工作"""
+    try:
+        ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
+        test_payload = {
+            "model": model_name,
+            "prompt": "Hello! Please respond with 'Model test successful' if you can understand this.",
+            "stream": False
+        }
+        
+        response = requests.post(ollama_url, json=test_payload, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            response_text = data.get("response", "").lower()
+            
+            # 检查响应是否包含预期内容
+            if "model test" in response_text or "successful" in response_text or "hello" in response_text:
+                return {
+                    "success": True,
+                    "response": data.get("response", ""),
+                    "eval_count": data.get("eval_count", 0),
+                    "eval_duration": data.get("eval_duration", 0)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Unexpected response from model",
+                    "response": data.get("response", "")
+                }
+        else:
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}: {response.text}"
+            }
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+async def broadcast_model_switch(new_model):
+    """广播模型切换事件到所有连接的客户端"""
+    if not connected_clients:
+        return
+    
+    message = {
+        "type": "model_switch",
+        "new_model": new_model,
+        "timestamp": time.time(),
+        "message": f"System switched to model: {new_model}"
+    }
+    
+    disconnected_clients = []
+    for client_id, websocket in connected_clients.items():
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Failed to broadcast model switch to client {client_id}: {str(e)}")
+            disconnected_clients.append(client_id)
+    
+    # Remove disconnected clients
+    for client_id in disconnected_clients:
+        del connected_clients[client_id]
+
+# ==================== 保持所有原有API ====================
+
 @app.get("/")
 async def root():
-    return {"message": "AI Voice Assistant Coordinator Service is running"}
+    return {"message": "AI Voice Assistant Coordinator Service is running", "current_model": model_manager.get_current_model()}
 
 @app.post("/process_audio")
 async def process_audio(request: AudioRequest):
@@ -184,7 +461,7 @@ async def process_audio(request: AudioRequest):
                 content={"error": "Unable to recognize audio content"}
             )
         
-        # 2. Send text to enhanced LLM processing
+        # 2. Send text to enhanced LLM processing (使用当前选择的模型)
         response = await process_text_with_enhanced_llm(transcription)
         
         return response
@@ -292,18 +569,21 @@ async def get_room_status(room: str):
     }
 
 async def process_text_with_enhanced_llm(text_input, user_context=None, location="living_room"):
-    """Enhanced text processing with LLM"""
+    """Enhanced text processing with LLM - 使用当前选择的模型"""
     
     # 1. Generate enhanced system prompt
     system_prompt = get_comprehensive_system_prompt(user_context, location)
     
-    # 2. Send to Ollama
+    # 2. Send to Ollama (使用动态选择的模型)
+    current_model = model_manager.get_current_model()
     ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
     ollama_payload = {
-        "model": OLLAMA_MODEL,
+        "model": current_model,  # 使用当前选择的模型
         "prompt": f"{system_prompt}\n\n用户: {text_input}\n助手:",
         "stream": False
     }
+    
+    logger.info(f"🤖 Using model: {current_model} for text processing")
     
     ollama_response = requests.post(ollama_url, json=ollama_payload)
     ollama_response.raise_for_status()
@@ -346,8 +626,12 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
         "iot_commands": iot_commands,
         "iot_results": iot_results,
         "location": location,
-        "user_context": user_context
+        "user_context": user_context,
+        "model_used": current_model,  # 新增：返回使用的模型信息
+        "model_info": model_manager.get_model_info(current_model)
     }
+
+# ==================== 保持所有原有辅助函数 ====================
 
 def get_comprehensive_system_prompt(user_context=None, location="living_room"):
     """Generate comprehensive system prompt"""
@@ -373,7 +657,10 @@ def get_comprehensive_system_prompt(user_context=None, location="living_room"):
     user_activity = user_context.get("activity", "unknown") if user_context else "unknown"
     time_of_day = user_context.get("time_of_day", "day") if user_context else "day"
     
-    system_prompt = f"""You are a smart home voice assistant capable of understanding natural language in both Chinese and English. Control various smart devices based on user intent and current environmental conditions.
+    # 获取当前模型信息，用于系统提示
+    current_model = model_manager.get_current_model()
+    
+    system_prompt = f"""You are a smart home voice assistant using model {current_model}. Control various smart devices based on user intent and current environmental conditions.
 
 ## Current Environmental Status
 {env_data}
@@ -385,6 +672,7 @@ def get_comprehensive_system_prompt(user_context=None, location="living_room"):
 - Current Location: {location}
 - Current Activity: {user_activity}
 - Time of Day: {time_of_day}
+- AI Model: {current_model}
 
 ## Controllable Device Types
 
@@ -444,26 +732,6 @@ def get_comprehensive_system_prompt(user_context=None, location="living_room"):
 - **Always respond in the same language as the user's input**
 - Support mixed Chinese-English commands
 - Understand colloquial expressions and smart home slang
-
-## Language Support Examples
-### English Commands:
-- "Turn on the living room ceiling light"
-- "Set bedroom AC to 24 degrees"
-- "Dim the study desk lamp to 50%"
-- "Execute sleep mode"
-- "Open curtains halfway"
-
-### Chinese Commands:
-- "打开客厅的天花板灯"
-- "把卧室空调调到24度"
-- "把书房台灯调暗到50%"
-- "执行睡眠模式"
-- "窗帘开一半"
-
-### Mixed Commands:
-- "Turn on 客厅的灯"
-- "打开living room的AC"
-- "Set 卧室fan to speed 3"
 
 Please intelligently control devices based on user's natural language instructions and provide thoughtful suggestions. Always respond in the same language as the user's input."""
 
@@ -719,7 +987,7 @@ def extract_iot_commands_enhanced(user_input, ai_response):
     return commands
 
 async def execute_scene_mode(scene_name, location=None):
-    """Execute scene mode"""
+    """Execute predefined scene modes"""
     scene_commands = []
     
     if scene_name == "home_mode":
@@ -871,12 +1139,22 @@ def generate_recommendations(user_context, location):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Enhanced WebSocket connection handler"""
+    """Enhanced WebSocket connection handler with model management"""
     await websocket.accept()
     client_id = id(websocket)
     connected_clients[client_id] = websocket
     
     try:
+        # Send initial connection info including current model
+        await websocket.send_json({
+            "type": "connection_established",
+            "client_id": str(client_id),
+            "current_model": model_manager.get_current_model(),
+            "available_models": await model_manager.get_available_models(),
+            "timestamp": time.time(),
+            "message": "Connected to Enhanced AI Voice Assistant Coordinator"
+        })
+        
         while True:
             data = await websocket.receive_text()
             try:
@@ -913,6 +1191,69 @@ async def websocket_endpoint(websocket: WebSocket):
                         "results": results
                     })
                 
+                elif message_type == "model_switch":
+                    # Handle model switch request via WebSocket
+                    model_name = message.get("model_name")
+                    if model_name:
+                        available_models = await model_manager.get_available_models(force_refresh=True)
+                        
+                        if model_name in available_models:
+                            success = model_manager.set_current_model(model_name)
+                            if success:
+                                # Test the new model
+                                test_result = await test_model_functionality(model_name)
+                                
+                                if test_result["success"]:
+                                    # Broadcast to all clients
+                                    await broadcast_model_switch(model_name)
+                                    
+                                    await websocket.send_json({
+                                        "type": "model_switch_result",
+                                        "success": True,
+                                        "new_model": model_name,
+                                        "test_result": test_result
+                                    })
+                                else:
+                                    await websocket.send_json({
+                                        "type": "model_switch_result",
+                                        "success": False,
+                                        "error": "Model test failed",
+                                        "test_result": test_result
+                                    })
+                            else:
+                                await websocket.send_json({
+                                    "type": "model_switch_result",
+                                    "success": False,
+                                    "error": "Failed to switch model"
+                                })
+                        else:
+                            await websocket.send_json({
+                                "type": "model_switch_result",
+                                "success": False,
+                                "error": f"Model not available: {model_name}"
+                            })
+                
+                elif message_type == "get_models":
+                    # Get available models
+                    models = await model_manager.get_available_models(force_refresh=True)
+                    current_model = model_manager.get_current_model()
+                    
+                    model_list = []
+                    for model_name in models:
+                        model_info = model_manager.get_model_info(model_name)
+                        model_list.append({
+                            "name": model_name,
+                            "size": model_info.get("size", 0),
+                            "size_mb": round(model_info.get("size", 0) / (1024 * 1024), 1),
+                            "is_current": model_name == current_model
+                        })
+                    
+                    await websocket.send_json({
+                        "type": "models_list",
+                        "current_model": current_model,
+                        "available_models": model_list
+                    })
+                
                 elif message_type == "device_registration":
                     # Register device
                     device_info = message.get("device_info", {})
@@ -930,7 +1271,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({
                         "type": "registration_result",
                         "device_id": device_id,
-                        "status": "registered"
+                        "status": "registered",
+                        "current_model": model_manager.get_current_model()
+                    })
+                
+                elif message_type == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "current_model": model_manager.get_current_model(),
+                        "timestamp": time.time()
                     })
                 
                 else:
@@ -957,6 +1306,20 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket error: {str(e)}")
         if client_id in connected_clients:
             del connected_clients[client_id]
+
+# 启动时初始化模型管理器
+@app.on_event("startup")
+async def startup_event():
+    """Enhanced startup with model initialization"""
+    logger.info("🚀 Enhanced AI Voice Assistant Coordinator starting up...")
+    
+    # Initialize model manager
+    await model_manager.get_available_models(force_refresh=True)
+    
+    logger.info(f"🤖 Current model: {model_manager.get_current_model()}")
+    logger.info(f"📋 Available models: {model_manager.available_models}")
+    
+    logger.info("✅ Enhanced Coordinator Service startup complete")
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
