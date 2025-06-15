@@ -204,24 +204,81 @@ HTTP API:
   - POST /stream - 流式音频合成
 ```
 
-### 4. 🏠 IoT Control Service (端口 8002)
+### 4. 🏠 IoT Control Service Pro (端口 8002)
+
+#### a. 智能传感器数据管理
+
+yaml
+
 ```yaml
-主要职责:
-  - 智能设备状态管理
-  - 实时传感器数据
-  - 场景模式执行
+真实数据集成:
+  - 支持ESP8266真实传感器数据上传
+  - 数据源标识: real_data标志位
+  - 时效性管理: 5分钟内的数据优先使用
+  - 自动降级: 超时后切换到模拟数据
 
-HTTP API:
-  - GET /devices - 所有设备状态
-  - POST /control - 设备控制
-  - GET /sensors - 传感器数据
-  - POST /execute_scene - 场景执行
+模拟数据引擎:
+  - 基于时间的环境变化模拟
+  - 设备操作的环境影响计算
+  - 真实性增强: 随机变化+趋势模拟
+  - 备用机制: 传感器故障时无缝切换
+```
 
-WebSocket功能:
-  - ws://localhost:8002/ws
-  - 实时设备状态广播
-  - 传感器数据流
-  - 设备控制结果通知
+#### b. 增强的WebSocket功能
+
+```python
+# services/iot/app.py - WebSocket端点
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """增强型IoT WebSocket - 支持真实数据流"""
+    
+    # 支持的消息类型:
+    # - control: 设备控制命令
+    # - get_sensors: 获取传感器数据
+    # - sensor_update: 实时传感器更新广播
+    # - device_update: 设备状态变化通知
+    # - ping/pong: 连接保活
+```
+
+#### c. 传感器数据处理API
+
+```yaml
+新增API端点:
+  - GET /sensors/{location}/info - 详细传感器信息
+  - POST /sensors/{location}/reset_simulation - 重置模拟模式
+  - GET /sensors - 所有传感器状态
+  - POST /control - 增强设备控制 (支持传感器数据更新)
+
+数据更新机制:
+  - 实时接收ESP8266传感器数据
+  - 智能数据验证和过滤
+  - 多房间独立数据管理
+  - 历史数据趋势分析
+```
+
+#### d. 设备控制矩阵
+
+```yaml
+支持设备类型:
+  lighting:
+    - ceiling_light: 5个房间 (亮度+色温控制)
+    - desk_lamp: 2个房间 (护眼模式)
+    
+  climate:
+    - ac: 2个房间 (温度+模式+风速)
+    - fan: 3个房间 (速度+摆动)
+    - exhaust_fan: 2个房间 (定时+速度)
+    
+  automation:
+    - curtain: 4个房间 (位置控制0-100%)
+    
+  sensors:
+    - temperature: 实时温度监控
+    - humidity: 湿度监控
+    - co2: 空气质量监控
+    - voc: 有机物检测
+    - light_level: 光照强度
+    - motion: 运动检测
 ```
 
 ### 5. 🧠 Ollama Service (端口 11434)
