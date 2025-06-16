@@ -1273,7 +1273,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "sensors": sensors,
                         "current_model": model_manager.get_current_model(),
                         "connected_clients": len(connected_clients),
-                        "registered_devices": len(registered_devices),
+                        # "registered_devices": len(registered_devices),
                         "timestamp": time.time()
                     })
                     
