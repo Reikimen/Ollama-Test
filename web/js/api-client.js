@@ -264,31 +264,64 @@ function disconnectWebSocket() {
 
 // Send WebSocket message
 function sendWebSocketMessage() {
-    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-        document.getElementById('ws-output').innerHTML += '<div class="console-output error">WebSocket not connected</div>';
+    if (!wsConnection) {
+        const outputArea = document.getElementById('ws-output');
+        if (outputArea) {
+            outputArea.innerHTML += '<div class="console-output error">❌ WebSocket not connected</div>';
+            outputArea.scrollTop = outputArea.scrollHeight;
+        }
         return;
     }
     
-    const message = document.getElementById('ws-message').value.trim();
+    if (wsConnection.readyState !== WebSocket.OPEN) {
+        const outputArea = document.getElementById('ws-output');
+        if (outputArea) {
+            outputArea.innerHTML += '<div class="console-output error">❌ WebSocket not ready</div>';
+            outputArea.scrollTop = outputArea.scrollHeight;
+        }
+        return;
+    }
     
+    const messageInput = document.getElementById('ws-message');
+    if (!messageInput) {
+        console.error('Message input element not found');
+        return;
+    }
+    
+    const message = messageInput.value.trim();
     if (!message) {
         return;
     }
     
-    // Create message object
-    const messageObj = {
-        type: 'text',
-        text: message
-    };
-    
-    // Send message
-    wsConnection.send(JSON.stringify(messageObj));
-    
-    // Display sent message
-    document.getElementById('ws-output').innerHTML += `<div class="console-output">Message sent: ${message}</div>`;
-    
-    // Clear input box
-    document.getElementById('ws-message').value = '';
+    try {
+        // 创建安全的消息对象
+        const messageObj = {
+            type: 'text',
+            text: message,
+            timestamp: Date.now()
+        };
+        
+        // 发送消息
+        wsConnection.send(JSON.stringify(messageObj));
+        
+        // 显示发送的消息
+        const outputArea = document.getElementById('ws-output');
+        if (outputArea) {
+            outputArea.innerHTML += `<div class="console-output">📤 Sent: ${message}</div>`;
+            outputArea.scrollTop = outputArea.scrollHeight;
+        }
+        
+        // 清空输入框
+        messageInput.value = '';
+        
+    } catch (error) {
+        console.error('Error sending WebSocket message:', error);
+        const outputArea = document.getElementById('ws-output');
+        if (outputArea) {
+            outputArea.innerHTML += `<div class="console-output error">❌ Send error: ${error.message}</div>`;
+            outputArea.scrollTop = outputArea.scrollHeight;
+        }
+    }
 }
 
 // Utility functions

@@ -821,67 +821,186 @@
         // 🔧 新增：增强的WebSocket命令
         function sendWSCommand(type, text = '') {
             if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-                document.getElementById('ws-output').innerHTML += '<div class="console-output error">WebSocket not connected</div>';
+                const outputArea = document.getElementById('ws-output');
+                if (outputArea) {
+                    outputArea.innerHTML += '<div class="console-output error">❌ WebSocket not connected</div>';
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                }
                 return;
             }
             
-            let messageObj;
-            if (type === 'test_text') {
-                messageObj = { type: 'text', text: text };
-            } else if (type === 'ping') {
-                messageObj = { type: 'ping' };
-            } else if (type === 'get_status') {
-                messageObj = { type: 'get_status' };
-            } else if (type === 'get_models') {
-                messageObj = { type: 'get_models' };
+            try {
+                let messageObj;
+                
+                switch (type) {
+                    case 'test_text':
+                        messageObj = { 
+                            type: 'text', 
+                            text: text || 'Test message from developer console',
+                            timestamp: Date.now()
+                        };
+                        break;
+                        
+                    case 'ping':
+                        messageObj = { 
+                            type: 'ping',
+                            timestamp: Date.now()
+                        };
+                        break;
+                        
+                    case 'get_status':
+                        messageObj = { 
+                            type: 'get_status',
+                            timestamp: Date.now()
+                        };
+                        break;
+                        
+                    case 'get_models':
+                        messageObj = { 
+                            type: 'get_models',
+                            timestamp: Date.now()
+                        };
+                        break;
+                        
+                    default:
+                        console.error('Unknown command type:', type);
+                        return;
+                }
+                
+                wsConnection.send(JSON.stringify(messageObj));
+                
+                const outputArea = document.getElementById('ws-output');
+                if (outputArea) {
+                    outputArea.innerHTML += `<div class="console-output">📤 Command sent: ${type}</div>`;
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                }
+                
+            } catch (error) {
+                console.error('Error sending WebSocket command:', error);
+                const outputArea = document.getElementById('ws-output');
+                if (outputArea) {
+                    outputArea.innerHTML += `<div class="console-output error">❌ Command error: ${error.message}</div>`;
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                }
             }
-            
-            wsConnection.send(JSON.stringify(messageObj));
-            document.getElementById('ws-output').innerHTML += `<div class="console-output">Command sent: ${type}</div>`;
         }
 
-        // 🔧 新增：增强的WebSocket消息处理
         function enhancedWebSocketHandler(event) {
             try {
-                const data = JSON.parse(event.data);
-                const outputArea = document.getElementById('ws-output');
-                
-                if (data.type === 'model_switch') {
-                    outputArea.innerHTML += `<div class="console-output success">🔄 Model switched to: ${data.new_model}</div>`;
-                    // 刷新本地模型状态
-                    loadAvailableModels();
-                    
-                } else if (data.type === 'models_list') {
-                    outputArea.innerHTML += `<div class="console-output">📋 Received models list: ${data.available_models.length} models</div>`;
-                    outputArea.innerHTML += `<div class="console-output">Current: ${data.current_model}</div>`;
-                    
-                } else if (data.type === 'connection_established') {
-                    outputArea.innerHTML += `<div class="console-output success">✅ Enhanced connection established</div>`;
-                    outputArea.innerHTML += `<div class="console-output">Current model: ${data.current_model}</div>`;
-                    outputArea.innerHTML += `<div class="console-output">Available models: ${data.available_models.length}</div>`;
-                    
-                    // 更新本地状态
-                    currentModel = data.current_model;
-                    availableModels = data.available_models;
-                    
-                } else {
-                    // 调用原有的消息处理逻辑
-                    if (typeof handleWebSocketMessage === 'function') {
-                        handleWebSocketMessage(data);
-                    } else {
-                        outputArea.innerHTML += `<div class="console-output">📨 Received: ${JSON.stringify(data, null, 2)}</div>`;
+                // 安全检查：确保 event.data 存在且有效
+                if (!event || !event.data) {
+                    console.warn('WebSocket: Received empty or invalid event');
+                    return;
+                }
+
+                // 安全解析 JSON
+                let data;
+                try {
+                    data = JSON.parse(event.data);
+                } catch (parseError) {
+                    console.error('WebSocket: Failed to parse JSON:', parseError);
+                    const outputArea = document.getElementById('ws-output');
+                    if (outputArea) {
+                        outputArea.innerHTML += `<div class="console-output error">❌ Invalid JSON received: ${event.data}</div>`;
+                        outputArea.scrollTop = outputArea.scrollHeight;
                     }
+                    return;
+                }
+
+                // 安全检查：确保 data 是对象
+                if (!data || typeof data !== 'object') {
+                    console.warn('WebSocket: Received non-object data:', data);
+                    return;
+                }
+
+                const outputArea = document.getElementById('ws-output');
+                if (!outputArea) {
+                    console.warn('WebSocket: Output area not found');
+                    return;
+                }
+                
+                // 根据消息类型处理
+                switch (data.type) {
+                    case 'model_switch':
+                        outputArea.innerHTML += `<div class="console-output success">🔄 Model switched to: ${data.new_model || 'Unknown'}</div>`;
+                        // 刷新本地模型状态
+                        if (typeof loadAvailableModels === 'function') {
+                            loadAvailableModels();
+                        }
+                        break;
+                        
+                    case 'models_list':
+                        const modelCount = data.available_models ? data.available_models.length : 0;
+                        outputArea.innerHTML += `<div class="console-output">📋 Received models list: ${modelCount} models</div>`;
+                        outputArea.innerHTML += `<div class="console-output">Current: ${data.current_model || 'None'}</div>`;
+                        break;
+                        
+                    case 'connection_established':
+                        outputArea.innerHTML += `<div class="console-output success">✅ Enhanced connection established</div>`;
+                        outputArea.innerHTML += `<div class="console-output">Current model: ${data.current_model || 'Unknown'}</div>`;
+                        
+                        // 安全检查 available_models
+                        if (data.available_models && Array.isArray(data.available_models)) {
+                            outputArea.innerHTML += `<div class="console-output">Available models: ${data.available_models.length}</div>`;
+                            
+                            // 更新本地状态
+                            if (typeof currentModel !== 'undefined') {
+                                currentModel = data.current_model;
+                            }
+                            if (typeof availableModels !== 'undefined') {
+                                availableModels = data.available_models;
+                            }
+                        } else {
+                            outputArea.innerHTML += `<div class="console-output">Available models: 0 (data invalid)</div>`;
+                        }
+                        break;
+                        
+                    case 'text_response':
+                    case 'audio_response':
+                        if (data.response) {
+                            outputArea.innerHTML += `<div class="console-output success">✅ AI Response received</div>`;
+                            outputArea.innerHTML += `<div class="console-output">Input: ${data.response.input_text || 'N/A'}</div>`;
+                            outputArea.innerHTML += `<div class="console-output">Response: ${data.response.ai_response || 'N/A'}</div>`;
+                            
+                            // 显示配置文件信息（如果有）
+                            if (data.response.config_file_info) {
+                                outputArea.innerHTML += `<div class="console-output">💾 Config: ${data.response.config_file_info.config_updated ? 'Updated' : 'Not updated'}</div>`;
+                            }
+                        } else {
+                            outputArea.innerHTML += `<div class="console-output">📨 Response received (no details)</div>`;
+                        }
+                        break;
+                        
+                    case 'error':
+                        const errorMsg = data.error || data.message || 'Unknown error';
+                        outputArea.innerHTML += `<div class="console-output error">❌ Error: ${errorMsg}</div>`;
+                        break;
+                        
+                    case 'pong':
+                        outputArea.innerHTML += `<div class="console-output">🏓 Pong received</div>`;
+                        break;
+                        
+                    default:
+                        // 对于未知消息类型，安全显示
+                        const safeData = JSON.stringify(data, null, 2).substring(0, 500); // 限制长度
+                        outputArea.innerHTML += `<div class="console-output">📨 Received: ${safeData}</div>`;
+                        break;
                 }
                 
                 // 滚动到底部
                 outputArea.scrollTop = outputArea.scrollHeight;
                 
             } catch (error) {
-                console.error('WebSocket message parsing error:', error);
-                document.getElementById('ws-output').innerHTML += `<div class="console-output error">❌ Failed to parse message: ${error.message}</div>`;
+                console.error('WebSocket message handling error:', error);
+                const outputArea = document.getElementById('ws-output');
+                if (outputArea) {
+                    outputArea.innerHTML += `<div class="console-output error">❌ Failed to parse message: ${error.message}</div>`;
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                }
             }
         }
 
+        
         // 🔧 保持所有原有的JavaScript函数（从原文件）
         // Global variables for developer mode
         let performanceMonitorInterval = null;
@@ -1113,60 +1232,162 @@
         
         // 🔧 新增：增强的WebSocket连接
         function connectWebSocket() {
-            if (wsConnection) {
+            const statusElement = document.getElementById('ws-status');
+            const outputArea = document.getElementById('ws-output');
+            
+            if (!statusElement || !outputArea) {
+                console.error('Required WebSocket UI elements not found');
                 return;
             }
             
-            const wsUrl = `ws://${window.location.hostname}:8080/ws`;
-            wsConnection = new WebSocket(wsUrl);
-            
-            const statusElement = document.getElementById('ws-status');
-            statusElement.textContent = 'Connecting...';
-            statusElement.className = 'ms-3 badge bg-warning';
-            
-            const outputArea = document.getElementById('ws-output');
-            
-            // Connection established
-            wsConnection.onopen = function() {
-                statusElement.textContent = 'Connected (Enhanced)';
-                statusElement.className = 'ms-3 badge bg-success';
+            try {
+                wsConnection = new WebSocket(`ws://${window.location.hostname}:8080/ws`);
                 
-                document.getElementById('ws-connect').disabled = true;
-                document.getElementById('ws-disconnect').disabled = false;
-                const sendButton = document.getElementById('ws-send');
-                if (sendButton) {
-                    sendButton.disabled = false;
-                }
+                statusElement.textContent = 'Connecting...';
+                statusElement.className = 'ms-3 badge bg-warning';
                 
-                outputArea.innerHTML += '<div class="console-output success">Enhanced WebSocket connection established</div>';
-            };
-            
-            // Message received - 使用增强的处理函数
-            wsConnection.onmessage = enhancedWebSocketHandler;
-            
-            // Connection closed
-            wsConnection.onclose = function() {
-                statusElement.textContent = 'Disconnected';
-                statusElement.className = 'ms-3 badge bg-secondary';
+                // Connection opened
+                wsConnection.onopen = function() {
+                    statusElement.textContent = 'Connected';
+                    statusElement.className = 'ms-3 badge bg-success';
+                    
+                    document.getElementById('ws-connect').disabled = true;
+                    document.getElementById('ws-disconnect').disabled = false;
+                    const sendButton = document.getElementById('ws-send');
+                    if (sendButton) {
+                        sendButton.disabled = false;
+                    }
+                    
+                    outputArea.innerHTML += '<div class="console-output success">✅ WebSocket connected successfully</div>';
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                };
                 
-                document.getElementById('ws-connect').disabled = false;
-                document.getElementById('ws-disconnect').disabled = true;
-                const sendButton = document.getElementById('ws-send');
-                if (sendButton) {
-                    sendButton.disabled = true;
-                }
+                // Message received
+                wsConnection.onmessage = function(event) {
+                    try {
+                        // 安全检查事件数据
+                        if (!event || !event.data) {
+                            console.warn('WebSocket: Received empty message');
+                            return;
+                        }
+                        
+                        // 尝试解析 JSON
+                        let data;
+                        try {
+                            data = JSON.parse(event.data);
+                        } catch (parseError) {
+                            console.error('WebSocket JSON parse error:', parseError);
+                            outputArea.innerHTML += `<div class="console-output error">❌ Invalid JSON: ${event.data.substring(0, 100)}...</div>`;
+                            outputArea.scrollTop = outputArea.scrollHeight;
+                            return;
+                        }
+                        
+                        // 安全检查解析结果
+                        if (!data || typeof data !== 'object') {
+                            console.warn('WebSocket: Invalid data structure:', data);
+                            outputArea.innerHTML += `<div class="console-output error">❌ Invalid data structure received</div>`;
+                            outputArea.scrollTop = outputArea.scrollHeight;
+                            return;
+                        }
+                        
+                        // 处理不同类型的消息
+                        if (data.type === 'text_response' && data.response) {
+                            outputArea.innerHTML += '<div class="console-output success">✅ Text response received</div>';
+                            
+                            // 安全访问响应属性
+                            const inputText = data.response.input_text || 'N/A';
+                            const aiResponse = data.response.ai_response || 'N/A';
+                            const modelUsed = data.response.model_used || 'Unknown';
+                            
+                            outputArea.innerHTML += `<div class="console-output"><strong>Input:</strong> ${inputText}</div>`;
+                            outputArea.innerHTML += `<div class="console-output"><strong>AI Response:</strong> ${aiResponse}</div>`;
+                            outputArea.innerHTML += `<div class="console-output"><strong>Model:</strong> ${modelUsed}</div>`;
+                            
+                            // 显示配置文件信息（如果存在）
+                            if (data.response.config_file_info) {
+                                const configInfo = data.response.config_file_info;
+                                outputArea.innerHTML += `<div class="console-output">💾 Config file: ${configInfo.config_updated ? 'Updated' : 'Not updated'}</div>`;
+                            }
+                            
+                        } else if (data.type === 'audio_response' && data.response) {
+                            outputArea.innerHTML += '<div class="console-output success">✅ Audio response received</div>';
+                            
+                            // 处理音频文件
+                            if (data.response.audio_path) {
+                                const audioServer = `http://${window.location.hostname}:8001`;
+                                const audioFilename = data.response.audio_path.split('/').pop();
+                                const audioUrl = `${audioServer}/audio/${audioFilename}`;
+                                
+                                const audioElement = document.createElement('audio');
+                                audioElement.controls = true;
+                                audioElement.src = audioUrl;
+                                audioElement.style.width = '100%';
+                                audioElement.style.marginTop = '10px';
+                                
+                                const audioContainer = document.createElement('div');
+                                audioContainer.className = 'console-output';
+                                audioContainer.innerHTML = '<strong>Audio response:</strong><br>';
+                                audioContainer.appendChild(audioElement);
+                                
+                                outputArea.appendChild(audioContainer);
+                                
+                                // 尝试自动播放
+                                audioElement.play().catch(e => {
+                                    console.log('Auto-play blocked:', e);
+                                });
+                            }
+                            
+                        } else {
+                            // 对于其他消息类型，安全显示
+                            const safeMessage = JSON.stringify(data, null, 2).substring(0, 300);
+                            outputArea.innerHTML += `<div class="console-output">📨 Message: ${safeMessage}</div>`;
+                        }
+                        
+                    } catch (error) {
+                        console.error('WebSocket message processing error:', error);
+                        outputArea.innerHTML += `<div class="console-output error">❌ Message processing error: ${error.message}</div>`;
+                    }
+                    
+                    // 滚动到底部
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                };
                 
-                outputArea.innerHTML += '<div class="console-output">Enhanced WebSocket connection closed</div>';
-                wsConnection = null;
-            };
-            
-            // Connection error
-            wsConnection.onerror = function(error) {
-                statusElement.textContent = 'Connection Error';
+                // Connection closed
+                wsConnection.onclose = function(event) {
+                    statusElement.textContent = 'Disconnected';
+                    statusElement.className = 'ms-3 badge bg-secondary';
+                    
+                    document.getElementById('ws-connect').disabled = false;
+                    document.getElementById('ws-disconnect').disabled = true;
+                    const sendButton = document.getElementById('ws-send');
+                    if (sendButton) {
+                        sendButton.disabled = true;
+                    }
+                    
+                    // 安全显示关闭原因
+                    const reason = event.reason || 'Unknown reason';
+                    const code = event.code || 'Unknown code';
+                    outputArea.innerHTML += `<div class="console-output">🔌 WebSocket closed (${code}: ${reason})</div>`;
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                    wsConnection = null;
+                };
+                
+                // Connection error
+                wsConnection.onerror = function(error) {
+                    statusElement.textContent = 'Connection Error';
+                    statusElement.className = 'ms-3 badge bg-danger';
+                    
+                    const errorMsg = error.message || 'Connection failed';
+                    outputArea.innerHTML += `<div class="console-output error">❌ WebSocket error: ${errorMsg}</div>`;
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                };
+                
+            } catch (error) {
+                console.error('WebSocket connection setup error:', error);
+                statusElement.textContent = 'Setup Error';
                 statusElement.className = 'ms-3 badge bg-danger';
-                
-                outputArea.innerHTML += `<div class="console-output error">Enhanced WebSocket error: ${error.message || 'Unknown error'}</div>`;
-            };
+                outputArea.innerHTML += `<div class="console-output error">❌ Setup error: ${error.message}</div>`;
+            }
         }
     </script>
 </body>

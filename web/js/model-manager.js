@@ -1,11 +1,11 @@
 /**
- * Dynamic Model Manager for Smart Home Assistant
- * 实现网页端动态切换Ollama模型的功能
+ * Enhanced Dynamic Model Manager for Smart Home Assistant
+ * 支持配置文件自动生成和管理的模型切换功能
  * 
  * 核心功能：
  * 1. 获取可用模型列表
  * 2. 动态切换当前模型
- * 3. 下载新模型
+ * 3. 配置文件自动生成和状态显示
  * 4. 模型性能测试
  * 5. 实时状态监控
  */
@@ -19,6 +19,7 @@ const ModelManager = {
     downloadInProgress: false,
     lastUpdateTime: 0,
     updateInterval: 30000, // 30秒更新间隔
+    configStatus: null,
     
     // UI元素引用
     elements: {
@@ -35,17 +36,20 @@ const ModelManager = {
         modelSizeBadge: null,
         modelsCountBadge: null,
         testResult: null,
-        chatCurrentModel: null
+        chatCurrentModel: null,
+        configStatusIndicator: null,
+        configDetails: null,
+        saveConfigButton: null
     },
     
     // 初始化
     init() {
-        console.log('🤖 Initializing Dynamic Model Manager...');
+        console.log('🤖 Initializing Enhanced Dynamic Model Manager...');
         this.bindElements();
         this.bindEvents();
         this.loadModels();
         this.startPeriodicUpdate();
-        console.log('✅ Model Manager initialized');
+        console.log('✅ Enhanced Model Manager initialized');
     },
     
     // 绑定DOM元素
@@ -63,61 +67,91 @@ const ModelManager = {
             responseTimeBadge: document.getElementById('response-time-badge'),
             modelSizeBadge: document.getElementById('model-size-badge'),
             modelsCountBadge: document.getElementById('models-count-badge'),
-            testResult: document.getElementById('model-test-result'),
-            chatCurrentModel: document.getElementById('chat-current-model')
+            testResult: document.getElementById('test-result'),
+            chatCurrentModel: document.getElementById('chat-current-model'),
+            configStatusIndicator: document.getElementById('config-status-indicator'),
+            configDetails: document.getElementById('config-details'),
+            saveConfigButton: document.getElementById('save-config-btn')
         };
         
-        // 检查必要元素是否存在
-        const missingElements = Object.entries(this.elements)
-            .filter(([key, element]) => !element)
-            .map(([key]) => key);
-            
-        if (missingElements.length > 0) {
-            console.warn('⚠️ Some UI elements not found:', missingElements);
-        }
+        console.log('🔗 UI elements bound successfully');
     },
     
-    // 绑定事件监听器
+    // 绑定事件
     bindEvents() {
-        // 模型切换
+        // 切换模型按钮
         if (this.elements.switchButton) {
-            this.elements.switchButton.addEventListener('click', () => this.switchModel());
+            this.elements.switchButton.addEventListener('click', () => {
+                this.switchModel();
+            });
         }
         
-        // 刷新模型列表
+        // 刷新模型列表按钮
         if (this.elements.refreshButton) {
-            this.elements.refreshButton.addEventListener('click', () => this.refreshModels());
+            this.elements.refreshButton.addEventListener('click', () => {
+                this.refreshModels();
+            });
         }
         
-        // 下载模型
+        // 下载模型按钮
         if (this.elements.downloadButton) {
-            this.elements.downloadButton.addEventListener('click', () => this.downloadModel());
+            this.elements.downloadButton.addEventListener('click', () => {
+                this.downloadModel();
+            });
         }
         
-        // 测试当前模型
+        // 测试当前模型按钮
         if (this.elements.testButton) {
-            this.elements.testButton.addEventListener('click', () => this.testCurrentModel());
+            this.elements.testButton.addEventListener('click', () => {
+                this.testCurrentModel();
+            });
+        }
+        
+        // 手动保存配置按钮
+        if (this.elements.saveConfigButton) {
+            this.elements.saveConfigButton.addEventListener('click', () => {
+                this.saveConfigManually();
+            });
         }
         
         // 模型选择器变化
         if (this.elements.modelSelector) {
-            this.elements.modelSelector.addEventListener('change', () => this.onModelSelectorChange());
-        }
-        
-        // 下载输入框回车键
-        if (this.elements.downloadInput) {
-            this.elements.downloadInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    this.downloadModel();
-                }
+            this.elements.modelSelector.addEventListener('change', () => {
+                this.onModelSelectorChange();
             });
         }
+        
+        console.log('📡 Event listeners attached successfully');
     },
     
-    // 加载可用模型列表
+    // 记录状态日志
+    logStatus(message, type = 'info') {
+        if (!this.elements.statusOutput) return;
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const cssClass = type === 'error' ? 'console-output error' : 
+                        type === 'success' ? 'console-output success' : 'console-output';
+        
+        this.elements.statusOutput.innerHTML += `<div class="${cssClass}">[${timestamp}] ${message}</div>`;
+        
+        // 自动滚动到底部
+        this.elements.statusOutput.scrollTop = this.elements.statusOutput.scrollHeight;
+        
+        // 限制日志条数，避免界面卡顿
+        const logs = this.elements.statusOutput.querySelectorAll('div');
+        if (logs.length > 50) {
+            for (let i = 0; i < 10; i++) {
+                if (logs[i]) logs[i].remove();
+            }
+        }
+        
+        console.log(`[ModelManager] ${message}`);
+    },
+    
+    // 加载可用模型列表 - 增强版本
     async loadModels() {
         try {
-            this.logStatus('🔍 正在获取可用模型列表...');
+            this.logStatus('🔍 正在获取可用模型列表和配置状态...');
             
             const response = await fetch(`${API_URLS.coordinator}/models`);
             const data = await response.json();
@@ -138,6 +172,26 @@ const ModelManager = {
                 this.logStatus(`✅ 成功加载 ${this.availableModels.length} 个模型`);
                 console.log('📋 Available models:', this.availableModels.map(m => m.name));
                 
+                // 🔥 新增：处理配置文件信息
+                if (data.config_file_info) {
+                    const configInfo = data.config_file_info;
+                    this.configStatus = configInfo;
+                    
+                    this.logStatus(`📁 配置文件状态: ${configInfo.exists ? '已存在' : '不存在'}`);
+                    
+                    if (configInfo.exists) {
+                        this.logStatus(`📍 配置路径: ${configInfo.path}`);
+                        this.logStatus(`📊 文件大小: ${configInfo.size_bytes} 字节`);
+                        
+                        if (configInfo.last_modified) {
+                            this.logStatus(`⏰ 最后修改: ${configInfo.last_modified}`);
+                        }
+                    }
+                    
+                    // 更新配置状态UI
+                    this.updateConfigStatusUI(configInfo);
+                }
+                
                 this.lastUpdateTime = Date.now();
                 
             } else {
@@ -150,24 +204,7 @@ const ModelManager = {
         }
     },
     
-    // 刷新模型列表
-    async refreshModels() {
-        if (this.elements.refreshButton) {
-            this.elements.refreshButton.disabled = true;
-            this.elements.refreshButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
-        }
-        
-        try {
-            await this.loadModels();
-        } finally {
-            if (this.elements.refreshButton) {
-                this.elements.refreshButton.disabled = false;
-                this.elements.refreshButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新模型列表';
-            }
-        }
-    },
-    
-    // 切换模型
+    // 切换模型 - 增强版本，支持配置文件状态显示
     async switchModel() {
         if (!this.elements.modelSelector) return;
         
@@ -209,6 +246,31 @@ const ModelManager = {
                 
                 this.logStatus(`✅ 成功切换到 ${selectedModel} (耗时: ${switchTime}ms)`, 'success');
                 
+                // 🔥 新增：显示配置文件状态
+                if (data.config_file_info) {
+                    const configInfo = data.config_file_info;
+                    
+                    if (configInfo.config_updated) {
+                        this.logStatus(`💾 配置文件已自动生成: ${configInfo.config_file_path}`, 'success');
+                        
+                        // 显示配置文件详细信息
+                        if (configInfo.after_switch) {
+                            const afterConfig = configInfo.after_switch;
+                            this.logStatus(`📁 配置文件大小: ${afterConfig.config_size_bytes} 字节`);
+                            
+                            if (afterConfig.config_modified) {
+                                this.logStatus(`⏰ 更新时间: ${afterConfig.config_modified}`);
+                            }
+                            
+                            // 更新配置状态
+                            this.configStatus = afterConfig;
+                            this.updateConfigStatusUI(afterConfig);
+                        }
+                    } else {
+                        this.logStatus(`⚠️ 配置文件生成失败`, 'error');
+                    }
+                }
+                
                 // 显示模型测试结果
                 if (data.test_result) {
                     const testResult = data.test_result;
@@ -231,6 +293,9 @@ const ModelManager = {
                 // 通知其他组件模型已切换
                 this.notifyModelSwitch(selectedModel);
                 
+                // 🔥 新增：检查并显示配置文件状态
+                await this.checkConfigFileStatus();
+                
             } else {
                 throw new Error(data.error || 'Unknown error during model switch');
             }
@@ -241,6 +306,122 @@ const ModelManager = {
         } finally {
             this.switchInProgress = false;
             this.updateSwitchButtonState(false);
+        }
+    },
+    
+    // 🔥 新增：检查配置文件状态
+    async checkConfigFileStatus() {
+        try {
+            const response = await fetch(`${API_URLS.coordinator}/models/config/status`);
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                const configStatus = data.config_status;
+                
+                this.logStatus(`📋 配置文件状态检查:`);
+                this.logStatus(`  📁 文件存在: ${configStatus.config_exists ? '✅' : '❌'}`);
+                this.logStatus(`  📍 路径: ${configStatus.config_file_path}`);
+                this.logStatus(`  📊 大小: ${configStatus.config_size_bytes} 字节`);
+                this.logStatus(`  🔢 模型数量: ${configStatus.total_available_models}`);
+                
+                if (configStatus.config_modified) {
+                    this.logStatus(`  ⏰ 修改时间: ${configStatus.config_modified}`);
+                }
+                
+                // 更新UI中的配置状态指示器
+                this.updateConfigStatusUI(configStatus);
+                
+            } else {
+                this.logStatus(`⚠️ 无法获取配置文件状态: ${data.error}`, 'error');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error checking config status:', error);
+            this.logStatus(`❌ 配置状态检查失败: ${error.message}`, 'error');
+        }
+    },
+    
+    // 🔥 新增：更新配置状态UI
+    updateConfigStatusUI(configStatus) {
+        // 更新配置状态指示器
+        if (this.elements.configStatusIndicator) {
+            if (configStatus.config_exists) {
+                this.elements.configStatusIndicator.innerHTML = `
+                    <span class="badge bg-success">
+                        <i class="bi bi-check-circle"></i> 配置已保存
+                    </span>
+                `;
+                this.elements.configStatusIndicator.title = `配置文件: ${configStatus.config_file_path}`;
+            } else {
+                this.elements.configStatusIndicator.innerHTML = `
+                    <span class="badge bg-warning">
+                        <i class="bi bi-exclamation-triangle"></i> 配置未保存
+                    </span>
+                `;
+            }
+        }
+        
+        // 更新配置详细信息面板
+        if (this.elements.configDetails) {
+            this.elements.configDetails.innerHTML = `
+                <div class="small text-muted">
+                    <div><strong>配置文件:</strong> ${configStatus.config_exists ? '已存在' : '不存在'}</div>
+                    <div><strong>路径:</strong> <code>${configStatus.config_file_path}</code></div>
+                    <div><strong>大小:</strong> ${configStatus.config_size_bytes} 字节</div>
+                    ${configStatus.config_modified ? `<div><strong>修改时间:</strong> ${configStatus.config_modified}</div>` : ''}
+                </div>
+            `;
+        }
+        
+        // 保存配置状态到实例
+        this.configStatus = configStatus;
+    },
+    
+    // 🔥 新增：手动保存配置功能
+    async saveConfigManually() {
+        try {
+            this.logStatus('💾 正在手动保存配置...');
+            
+            const response = await fetch(`${API_URLS.coordinator}/models/config/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                this.logStatus('✅ 配置已手动保存', 'success');
+                
+                if (data.config_info) {
+                    this.updateConfigStatusUI(data.config_info);
+                }
+                
+                // 刷新配置状态
+                await this.checkConfigFileStatus();
+            } else {
+                throw new Error(data.error || 'Failed to save config');
+            }
+            
+        } catch (error) {
+            console.error('❌ Error saving config manually:', error);
+            this.logStatus(`❌ 手动保存配置失败: ${error.message}`, 'error');
+        }
+    },
+    
+    // 刷新模型列表
+    async refreshModels() {
+        if (this.elements.refreshButton) {
+            this.elements.refreshButton.disabled = true;
+            this.elements.refreshButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
+        }
+        
+        try {
+            await this.loadModels();
+        } finally {
+            if (this.elements.refreshButton) {
+                this.elements.refreshButton.disabled = false;
+                this.elements.refreshButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新模型列表';
+            }
         }
     },
     
@@ -255,7 +436,7 @@ const ModelManager = {
         }
         
         if (this.downloadInProgress) {
-            alert('已有模型正在下载中');
+            alert('模型下载正在进行中，请稍候');
             return;
         }
         
@@ -264,7 +445,6 @@ const ModelManager = {
         
         try {
             this.logStatus(`📥 开始下载模型: ${modelName}...`);
-            this.logStatus('⏳ 下载可能需要几分钟时间，请耐心等待...');
             
             const response = await fetch(`${API_URLS.coordinator}/models/pull`, {
                 method: 'POST',
@@ -275,13 +455,13 @@ const ModelManager = {
             const data = await response.json();
             
             if (response.ok && data.success) {
-                this.logStatus(`✅ 成功下载模型: ${modelName}`, 'success');
+                this.logStatus(`✅ 模型 ${modelName} 下载成功`, 'success');
+                
+                // 下载完成后刷新模型列表
+                await this.loadModels();
                 
                 // 清空输入框
                 this.elements.downloadInput.value = '';
-                
-                // 刷新模型列表
-                await this.loadModels();
                 
             } else {
                 throw new Error(data.error || 'Download failed');
@@ -289,7 +469,7 @@ const ModelManager = {
             
         } catch (error) {
             console.error('❌ Model download failed:', error);
-            this.logStatus(`❌ 下载失败: ${error.message}`, 'error');
+            this.logStatus(`❌ 模型下载失败: ${error.message}`, 'error');
         } finally {
             this.downloadInProgress = false;
             this.updateDownloadButtonState(false);
@@ -298,61 +478,63 @@ const ModelManager = {
     
     // 测试当前模型
     async testCurrentModel() {
-        if (!this.elements.testButton) return;
-        
-        this.elements.testButton.disabled = true;
-        this.elements.testButton.innerHTML = '<i class="bi bi-hourglass-split"></i> 测试中...';
-        
-        if (this.elements.testResult) {
-            this.elements.testResult.textContent = '正在测试模型性能...';
-            this.elements.testResult.className = 'text-info';
+        if (!this.currentModel) {
+            alert('没有当前模型可供测试');
+            return;
         }
         
         try {
+            this.logStatus(`🧪 正在测试模型: ${this.currentModel}...`);
+            
             const startTime = Date.now();
             
-            const response = await fetch(`${API_URLS.coordinator}/process_text`, {
+            const response = await fetch(`${API_URLS.coordinator}/models/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    text: 'Hello! Please respond briefly to test the current model performance.' 
-                })
+                body: JSON.stringify({ model_name: this.currentModel })
             });
             
-            const endTime = Date.now();
-            const responseTime = endTime - startTime;
+            const data = await response.json();
+            const testTime = Date.now() - startTime;
             
-            if (response.ok) {
-                const data = await response.json();
+            if (response.ok && data.success) {
+                this.logStatus(`✅ 模型测试通过 (耗时: ${testTime}ms)`, 'success');
+                
+                if (data.eval_count) {
+                    const processingTime = Math.round(data.eval_duration / 1000000);
+                    this.logStatus(`📊 性能指标: ${data.eval_count} tokens, ${processingTime}ms`);
+                    
+                    // 更新性能显示
+                    if (this.elements.responseTimeBadge) {
+                        this.elements.responseTimeBadge.textContent = `${processingTime} ms`;
+                    }
+                }
                 
                 if (this.elements.testResult) {
-                    const responsePreview = data.ai_response.substring(0, 50);
-                    this.elements.testResult.innerHTML = `✅ 模型测试成功！响应时间: ${responseTime}ms<br><small>响应: "${responsePreview}..."</small><br><small>使用模型: ${data.model_used || this.currentModel}</small>`;
-                    this.elements.testResult.className = 'text-success';
+                    this.elements.testResult.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>测试通过!</strong><br>
+                            响应时间: ${testTime}ms<br>
+                            ${data.eval_count ? `处理速度: ${Math.round(data.eval_duration / 1000000)}ms` : ''}
+                        </div>
+                    `;
                 }
-                
-                // 更新性能指标
-                if (this.elements.responseTimeBadge) {
-                    this.elements.responseTimeBadge.textContent = `${responseTime} ms`;
-                }
-                
-                this.logStatus(`✅ 模型测试成功 (${responseTime}ms)`, 'success');
                 
             } else {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(data.error || 'Test failed');
             }
             
         } catch (error) {
             console.error('❌ Model test failed:', error);
-            if (this.elements.testResult) {
-                this.elements.testResult.textContent = `❌ 模型测试失败: ${error.message}`;
-                this.elements.testResult.className = 'text-danger';
-            }
             this.logStatus(`❌ 模型测试失败: ${error.message}`, 'error');
-        } finally {
-            if (this.elements.testButton) {
-                this.elements.testButton.disabled = false;
-                this.elements.testButton.innerHTML = '<i class="bi bi-play-circle"></i> 测试当前模型';
+            
+            if (this.elements.testResult) {
+                this.elements.testResult.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>测试失败!</strong><br>
+                        错误: ${error.message}
+                    </div>
+                `;
             }
         }
     },
@@ -361,20 +543,22 @@ const ModelManager = {
     updateUI(data) {
         // 更新当前模型显示
         if (this.elements.currentModelBadge) {
-            this.elements.currentModelBadge.textContent = data.current_model;
+            this.elements.currentModelBadge.textContent = data.current_model || 'None';
         }
         
         if (this.elements.chatCurrentModel) {
-            this.elements.chatCurrentModel.textContent = data.current_model;
+            this.elements.chatCurrentModel.textContent = data.current_model || 'None';
         }
         
-        // 更新模型数量
+        // 更新模型计数
         if (this.elements.modelsCountBadge) {
-            this.elements.modelsCountBadge.textContent = data.total_models;
+            this.elements.modelsCountBadge.textContent = data.total_models || 0;
         }
         
         // 更新当前模型大小
-        const currentModelData = data.available_models.find(m => m.is_current);
+        const currentModelData = data.available_models ? 
+            data.available_models.find(m => m.is_current) : null;
+        
         if (currentModelData) {
             if (this.elements.modelSizeBadge) {
                 this.elements.modelSizeBadge.textContent = `${currentModelData.size_mb} MB`;
@@ -386,10 +570,8 @@ const ModelManager = {
     updateModelSelector() {
         if (!this.elements.modelSelector) return;
         
-        this.elements.modelSelector.innerHTML = '';
-        
         if (this.availableModels.length === 0) {
-            this.elements.modelSelector.innerHTML = '<option value="">没有可用模型</option>';
+            this.elements.modelSelector.innerHTML = '<option value="">暂无可用模型</option>';
             if (this.elements.switchButton) {
                 this.elements.switchButton.disabled = true;
             }
@@ -440,60 +622,36 @@ const ModelManager = {
                 <small class="text-muted">
                     大小: ${modelData.size_mb} MB<br>
                     修改时间: ${modifiedDate}<br>
-                    状态: ${modelData.is_current ? 
-                        '<span class="badge bg-primary">当前使用</span>' : 
-                        '<span class="badge bg-secondary">可用</span>'}
+                    状态: ${modelData.is_current ? '<span class="text-primary">当前使用</span>' : '可切换'}
                 </small>
             `;
         }
     },
     
     // 更新切换按钮状态
-    updateSwitchButtonState(switching) {
+    updateSwitchButtonState(isLoading) {
         if (!this.elements.switchButton) return;
         
-        this.elements.switchButton.disabled = switching;
-        if (switching) {
-            this.elements.switchButton.innerHTML = '<i class="bi bi-hourglass-split"></i> 切换中...';
+        if (isLoading) {
+            this.elements.switchButton.disabled = true;
+            this.elements.switchButton.innerHTML = '<i class="bi bi-arrow-repeat"></i> 切换中...';
         } else {
-            this.elements.switchButton.innerHTML = '<i class="bi bi-arrow-repeat"></i> 切换模型';
+            this.elements.switchButton.disabled = false;
+            this.elements.switchButton.innerHTML = '<i class="bi bi-arrow-left-right"></i> 切换模型';
         }
     },
     
     // 更新下载按钮状态
-    updateDownloadButtonState(downloading) {
+    updateDownloadButtonState(isLoading) {
         if (!this.elements.downloadButton) return;
         
-        this.elements.downloadButton.disabled = downloading;
-        if (downloading) {
-            this.elements.downloadButton.innerHTML = '<i class="bi bi-hourglass-split"></i> 下载中...';
+        if (isLoading) {
+            this.elements.downloadButton.disabled = true;
+            this.elements.downloadButton.innerHTML = '<i class="bi bi-download"></i> 下载中...';
         } else {
-            this.elements.downloadButton.innerHTML = '<i class="bi bi-download"></i> 下载';
+            this.elements.downloadButton.disabled = false;
+            this.elements.downloadButton.innerHTML = '<i class="bi bi-download"></i> 下载模型';
         }
-    },
-    
-    // 记录状态日志
-    logStatus(message, type = 'info') {
-        if (!this.elements.statusOutput) return;
-        
-        const timestamp = new Date().toLocaleTimeString('zh-CN');
-        const cssClass = type === 'error' ? 'console-output error' : 
-                        type === 'success' ? 'console-output success' : 'console-output';
-        
-        this.elements.statusOutput.innerHTML += `<div class="${cssClass}">[${timestamp}] ${message}</div>`;
-        
-        // 自动滚动到底部
-        this.elements.statusOutput.scrollTop = this.elements.statusOutput.scrollHeight;
-        
-        // 限制日志条数，避免界面卡顿
-        const logs = this.elements.statusOutput.querySelectorAll('div');
-        if (logs.length > 50) {
-            for (let i = 0; i < 10; i++) {
-                if (logs[i]) logs[i].remove();
-            }
-        }
-        
-        console.log(`[ModelManager] ${message}`);
     },
     
     // 通知模型切换
@@ -503,7 +661,8 @@ const ModelManager = {
             detail: {
                 newModel: newModel,
                 oldModel: this.currentModel,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                configStatus: this.configStatus
             }
         });
         document.dispatchEvent(event);
@@ -553,6 +712,11 @@ const ModelManager = {
         return this.modelInfo[modelName] || null;
     },
     
+    // 获取配置状态
+    getConfigStatus() {
+        return this.configStatus;
+    },
+    
     // 清除状态日志
     clearStatusLog() {
         if (this.elements.statusOutput) {
@@ -567,6 +731,7 @@ window.ModelManager = ModelManager;
 // 快捷访问函数
 window.getCurrentModel = () => ModelManager.getCurrentModel();
 window.getAvailableModels = () => ModelManager.getAvailableModels();
+window.getConfigStatus = () => ModelManager.getConfigStatus();
 window.switchToModel = (modelName) => {
     if (ModelManager.elements.modelSelector) {
         ModelManager.elements.modelSelector.value = modelName;
@@ -584,6 +749,11 @@ document.addEventListener('modelSwitched', (event) => {
         element.textContent = event.detail.newModel;
     });
     
+    // 显示配置状态变化
+    if (event.detail.configStatus) {
+        console.log('📁 Config status:', event.detail.configStatus);
+    }
+    
     // 可以在这里添加其他需要响应模型切换的逻辑
 });
 
@@ -598,10 +768,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // 调试函数 - 仅在开发模式下可用
 if (typeof window.DEBUG !== 'undefined' && window.DEBUG) {
     window.debugModelManager = () => {
-        console.log('🔧 Model Manager Debug Info:');
+        console.log('🔧 Enhanced Model Manager Debug Info:');
         console.log('Current Model:', ModelManager.currentModel);
         console.log('Available Models:', ModelManager.availableModels);
         console.log('Model Info:', ModelManager.modelInfo);
+        console.log('Config Status:', ModelManager.configStatus);
         console.log('Switch in Progress:', ModelManager.switchInProgress);
         console.log('Download in Progress:', ModelManager.downloadInProgress);
         console.log('Last Update Time:', new Date(ModelManager.lastUpdateTime).toLocaleString());
@@ -616,4 +787,4 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-console.log('📦 Dynamic Model Manager module loaded successfully');
+console.log('📦 Enhanced Dynamic Model Manager module loaded successfully');

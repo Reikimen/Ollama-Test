@@ -6,8 +6,8 @@ import aiohttp
 import websockets
 import time
 import re
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import requests
@@ -32,14 +32,96 @@ TTS_PORT = os.getenv("TTS_PORT", "8001")
 IOT_HOST = os.getenv("IOT_HOST", "iot-control")
 IOT_PORT = os.getenv("IOT_PORT", "8002")
 
-# 全局模型管理
+# Enhanced ModelManager with configuration persistence
 class ModelManager:
     def __init__(self):
-        self.current_model = OLLAMA_MODEL
+        self.current_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
         self.available_models = []
         self.model_info = {}
         self.last_model_check = 0
         self.model_check_interval = 30  # 30秒检查一次可用模型
+        
+        # 配置文件路径
+        self.config_dir = "/app/config"
+        self.config_file = os.path.join(self.config_dir, "model_preferences.json")
+        
+        # 启动时加载已保存的配置
+        self._load_saved_preferences()
+    
+    def _ensure_config_directory(self):
+        """确保配置目录存在"""
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to create config directory: {str(e)}")
+            return False
+    
+    def _save_preferences_to_file(self):
+        """自动保存模型偏好设置到配置文件"""
+        try:
+            if not self._ensure_config_directory():
+                return False
+            
+            # 构建配置数据
+            preferences = {
+                "current_model": self.current_model,
+                "available_models": [
+                    {
+                        "name": model_name,
+                        "info": self.model_info.get(model_name, {})
+                    }
+                    for model_name in self.available_models
+                ],
+                "model_info": self.model_info,
+                "last_updated": time.time(),
+                "last_model_check": self.last_model_check,
+                "config_version": "1.0",
+                "auto_generated": True,
+                "creation_method": "model_switch"
+            }
+            
+            # 写入配置文件
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(preferences, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"💾 Model preferences automatically saved to {self.config_file}")
+            logger.info(f"📋 Current model: {self.current_model}")
+            logger.info(f"📋 Total models: {len(self.available_models)}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save model preferences: {str(e)}")
+            return False
+    
+    def _load_saved_preferences(self):
+        """启动时加载已保存的配置"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    preferences = json.load(f)
+                
+                # 加载保存的当前模型
+                saved_model = preferences.get("current_model")
+                if saved_model:
+                    self.current_model = saved_model
+                    logger.info(f"🔄 Restored current model from config: {self.current_model}")
+                
+                # 加载模型信息（如果有的话）
+                self.model_info = preferences.get("model_info", {})
+                self.last_model_check = preferences.get("last_model_check", 0)
+                
+                last_updated = preferences.get("last_updated", 0)
+                logger.info(f"📁 Loaded saved preferences from {self.config_file}")
+                logger.info(f"⏰ Last updated: {time.ctime(last_updated) if last_updated else 'Unknown'}")
+                
+            else:
+                logger.info(f"🆕 No existing config file found, will create on first model switch")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to load saved preferences: {str(e)}")
+            logger.info(f"🔄 Will use default configuration")
     
     async def get_available_models(self, force_refresh=False):
         """获取可用模型列表"""
@@ -55,6 +137,8 @@ class ModelManager:
                     data = response.json()
                     models = data.get("models", [])
                     
+                    # 检查是否有新模型
+                    old_models = set(self.available_models)
                     self.available_models = []
                     self.model_info = {}
                     
@@ -71,6 +155,21 @@ class ModelManager:
                             }
                     
                     self.last_model_check = current_time
+                    
+                    # 检查模型变化
+                    new_models = set(self.available_models)
+                    if old_models != new_models:
+                        added_models = new_models - old_models
+                        removed_models = old_models - new_models
+                        
+                        if added_models:
+                            logger.info(f"🆕 New models detected: {list(added_models)}")
+                        if removed_models:
+                            logger.info(f"🗑️ Models removed: {list(removed_models)}")
+                        
+                        # 模型列表有变化时自动保存配置
+                        self._save_preferences_to_file()
+                    
                     logger.info(f"📋 Found {len(self.available_models)} available models: {self.available_models}")
                 
                 else:
@@ -82,11 +181,21 @@ class ModelManager:
         return self.available_models
     
     def set_current_model(self, model_name):
-        """设置当前使用的模型"""
+        """设置当前使用的模型 - 增强版本，自动保存配置"""
         if model_name in self.available_models:
             old_model = self.current_model
             self.current_model = model_name
+            
             logger.info(f"🔄 Model switched: {old_model} → {model_name}")
+            
+            # 🔥 关键功能：在模型切换时自动生成/更新配置文件
+            save_success = self._save_preferences_to_file()
+            
+            if save_success:
+                logger.info(f"✅ Configuration file automatically updated after model switch")
+            else:
+                logger.warning(f"⚠️ Model switched successfully but failed to save configuration")
+            
             return True
         else:
             logger.warning(f"⚠️ Model not available: {model_name}")
@@ -101,6 +210,49 @@ class ModelManager:
         if model_name is None:
             model_name = self.current_model
         return self.model_info.get(model_name, {})
+    
+    def get_config_status(self):
+        """获取配置文件状态"""
+        config_exists = os.path.exists(self.config_file)
+        config_size = 0
+        config_modified = None
+        
+        if config_exists:
+            try:
+                stat = os.stat(self.config_file)
+                config_size = stat.st_size
+                config_modified = time.ctime(stat.st_mtime)
+            except:
+                pass
+        
+        return {
+            "config_file_path": self.config_file,
+            "config_exists": config_exists,
+            "config_size_bytes": config_size,
+            "config_modified": config_modified,
+            "current_model": self.current_model,
+            "total_available_models": len(self.available_models)
+        }
+    
+    def reset_preferences(self):
+        """重置配置到默认值"""
+        try:
+            self.current_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+            self.available_models = []
+            self.model_info = {}
+            self.last_model_check = 0
+            
+            # 删除配置文件
+            if os.path.exists(self.config_file):
+                os.remove(self.config_file)
+                logger.info(f"🗑️ Configuration file deleted: {self.config_file}")
+            
+            logger.info("🔄 Model preferences reset to defaults")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to reset preferences: {str(e)}")
+            return False
 
 # 全局模型管理器实例
 model_manager = ModelManager()
@@ -242,14 +394,21 @@ class DeviceRegistration(BaseModel):
     device_info: Dict[str, Any]
     capabilities: List[str]
 
-# ==================== 新增：模型管理API ====================
+class ConfigResetRequest(BaseModel):
+    confirm: bool = False
+
+class ConfigExportRequest(BaseModel):
+    export_path: Optional[str] = None
+
+# ==================== 增强的模型管理API ====================
 
 @app.get("/models")
 async def get_available_models():
-    """获取所有可用的Ollama模型"""
+    """获取所有可用的Ollama模型 - 增强版本"""
     try:
         models = await model_manager.get_available_models(force_refresh=True)
         current_model = model_manager.get_current_model()
+        config_status = model_manager.get_config_status()
         
         model_list = []
         for model_name in models:
@@ -266,7 +425,13 @@ async def get_available_models():
         return {
             "current_model": current_model,
             "available_models": model_list,
-            "total_models": len(models)
+            "total_models": len(models),
+            "config_file_info": {
+                "exists": config_status["config_exists"],
+                "path": config_status["config_file_path"],
+                "size_bytes": config_status["config_size_bytes"],
+                "last_modified": config_status["config_modified"]
+            }
         }
     
     except Exception as e:
@@ -278,21 +443,33 @@ async def get_available_models():
 
 @app.post("/models/switch")
 async def switch_model(request: ModelSwitchRequest):
-    """切换当前使用的模型"""
+    """切换当前使用的模型 - 增强版本，自动生成配置文件"""
     try:
+        logger.info(f"🔄 Attempting to switch to model: {request.model_name}")
+        
         # 先获取最新的模型列表
         available_models = await model_manager.get_available_models(force_refresh=True)
         
         if request.model_name not in available_models:
             return JSONResponse(
                 status_code=404,
-                content={"error": f"Model not found: {request.model_name}"}
+                content={
+                    "error": f"Model not found: {request.model_name}",
+                    "available_models": available_models
+                }
             )
         
-        # 切换模型
+        # 获取切换前的状态
+        old_model = model_manager.get_current_model()
+        config_status_before = model_manager.get_config_status()
+        
+        # 切换模型（会自动保存配置文件）
         success = model_manager.set_current_model(request.model_name)
         
         if success:
+            # 获取切换后的配置状态
+            config_status_after = model_manager.get_config_status()
+            
             # 测试新模型是否正常工作
             test_result = await test_model_functionality(request.model_name)
             
@@ -300,85 +477,143 @@ async def switch_model(request: ModelSwitchRequest):
                 # 广播模型切换事件到所有连接的客户端
                 await broadcast_model_switch(request.model_name)
                 
+                logger.info(f"✅ Successfully switched from {old_model} to {request.model_name}")
+                
                 return {
                     "success": True,
                     "message": f"Successfully switched to model: {request.model_name}",
+                    "old_model": old_model,
                     "current_model": request.model_name,
-                    "test_result": test_result
+                    "test_result": test_result,
+                    "config_file_info": {
+                        "before_switch": config_status_before,
+                        "after_switch": config_status_after,
+                        "config_updated": config_status_after["config_exists"],
+                        "config_file_path": config_status_after["config_file_path"]
+                    },
+                    "timestamp": time.time()
                 }
             else:
-                # 测试失败，回滚到之前的模型
-                logger.error(f"Model test failed for {request.model_name}, keeping current model")
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "error": f"Model {request.model_name} failed functionality test",
-                        "test_result": test_result
+                # 测试失败，但模型切换可能已经成功，记录警告
+                logger.warning(f"⚠️ Model switched to {request.model_name} but failed functionality test")
+                
+                return {
+                    "success": True,  # 模型切换成功
+                    "message": f"Model switched to {request.model_name} but failed functionality test",
+                    "current_model": request.model_name,
+                    "test_result": test_result,
+                    "warning": "Model may not be fully functional",
+                    "config_file_info": {
+                        "config_updated": config_status_after["config_exists"],
+                        "config_file_path": config_status_after["config_file_path"]
                     }
-                )
+                }
         else:
             return JSONResponse(
-                status_code=400,
-                content={"error": f"Failed to switch to model: {request.model_name}"}
+                status_code=500,
+                content={
+                    "error": "Failed to switch model",
+                    "current_model": model_manager.get_current_model(),
+                    "requested_model": request.model_name
+                }
             )
-    
+            
     except Exception as e:
-        logger.error(f"Error switching model: {str(e)}")
+        logger.error(f"❌ Error switching model: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error switching model: {str(e)}"}
+            content={
+                "error": f"Error switching model: {str(e)}",
+                "current_model": model_manager.get_current_model()
+            }
         )
 
-@app.post("/models/pull")
-async def pull_model(request: ModelPullRequest):
-    """下载新的Ollama模型"""
+@app.get("/models/config/status")
+async def get_config_status():
+    """获取配置文件状态"""
     try:
-        ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/pull"
+        config_status = model_manager.get_config_status()
         
-        # 开始下载模型
-        response = requests.post(ollama_url, json={"name": request.model_name}, timeout=300)
+        return {
+            "success": True,
+            "config_status": config_status,
+            "message": "Configuration status retrieved successfully"
+        }
         
-        if response.status_code == 200:
-            # 刷新模型列表
+    except Exception as e:
+        logger.error(f"Error getting config status: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error getting config status: {str(e)}"}
+        )
+
+@app.post("/models/config/save")
+async def save_config():
+    """手动保存当前配置"""
+    try:
+        model_manager._save_preferences_to_file()
+        config_info = model_manager.get_config_status()
+        
+        return {
+            "success": True,
+            "message": "Configuration saved successfully",
+            "config_info": config_info
+        }
+    except Exception as e:
+        logger.error(f"Error saving config: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error saving config: {str(e)}"}
+        )
+
+@app.post("/models/config/reset")
+async def reset_config(request: ConfigResetRequest):
+    """重置配置到默认值"""
+    try:
+        if not request.confirm:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Configuration reset requires confirmation",
+                    "message": "Set 'confirm' to true to proceed with reset"
+                }
+            )
+        
+        success = model_manager.reset_preferences()
+        
+        if success:
+            # 重新获取可用模型
             await model_manager.get_available_models(force_refresh=True)
             
             return {
                 "success": True,
-                "message": f"Successfully pulled model: {request.model_name}",
-                "model_name": request.model_name
+                "message": "Configuration reset successfully",
+                "current_model": model_manager.get_current_model(),
+                "available_models": model_manager.available_models
             }
         else:
             return JSONResponse(
-                status_code=response.status_code,
-                content={"error": f"Failed to pull model: {response.text}"}
+                status_code=500,
+                content={"error": "Failed to reset configuration"}
             )
-    
+            
     except Exception as e:
-        logger.error(f"Error pulling model: {str(e)}")
+        logger.error(f"Error resetting config: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error pulling model: {str(e)}"}
+            content={"error": f"Error resetting config: {str(e)}"}
         )
 
-@app.get("/models/current")
-async def get_current_model():
-    """获取当前使用的模型信息"""
-    current_model = model_manager.get_current_model()
-    model_info = model_manager.get_model_info(current_model)
-    
-    return {
-        "current_model": current_model,
-        "model_info": model_info,
-        "size_mb": round(model_info.get("size", 0) / (1024 * 1024), 1) if model_info.get("size") else 0
-    }
+# ==================== 模型测试功能 ====================
 
 async def test_model_functionality(model_name):
     """测试模型是否正常工作"""
     try:
         ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
+        
         test_payload = {
             "model": model_name,
-            "prompt": "Hello! Please respond with 'Model test successful' if you can understand this.",
+            "prompt": "Hello, this is a test message. Please respond with 'Model test successful' if you can understand this.",
             "stream": False
         }
         
@@ -414,16 +649,21 @@ async def test_model_functionality(model_name):
             "error": str(e)
         }
 
+# ==================== 广播函数 ====================
+
 async def broadcast_model_switch(new_model):
-    """广播模型切换事件到所有连接的客户端"""
+    """广播模型切换事件到所有连接的客户端 - 增强版本"""
     if not connected_clients:
         return
+    
+    config_status = model_manager.get_config_status()
     
     message = {
         "type": "model_switch",
         "new_model": new_model,
         "timestamp": time.time(),
-        "message": f"System switched to model: {new_model}"
+        "message": f"System switched to model: {new_model}",
+        "config_updated": config_status["config_exists"]
     }
     
     disconnected_clients = []
@@ -437,6 +677,33 @@ async def broadcast_model_switch(new_model):
     # Remove disconnected clients
     for client_id in disconnected_clients:
         del connected_clients[client_id]
+    
+    logger.info(f"📡 Model switch notification broadcasted to {len(connected_clients)} clients")
+
+# ==================== 启动事件 ====================
+
+@app.on_event("startup")
+async def startup_event():
+    """Enhanced startup with configuration initialization"""
+    logger.info("🚀 Enhanced AI Voice Assistant Coordinator starting up...")
+    
+    # 初始化模型管理器
+    await model_manager.get_available_models(force_refresh=True)
+    
+    # 获取配置状态
+    config_status = model_manager.get_config_status()
+    
+    logger.info(f"🤖 Current model: {model_manager.get_current_model()}")
+    logger.info(f"📋 Available models: {model_manager.available_models}")
+    logger.info(f"📁 Config file exists: {config_status['config_exists']}")
+    logger.info(f"📁 Config file path: {config_status['config_file_path']}")
+    
+    # 如果配置文件不存在，在启动时创建一个
+    if not config_status['config_exists']:
+        model_manager._save_preferences_to_file()
+        logger.info("💾 Initial configuration file created on startup")
+    
+    logger.info("✅ Enhanced Coordinator Service startup complete")
 
 # ==================== 保持所有原有API ====================
 
@@ -461,152 +728,78 @@ async def process_audio(request: AudioRequest):
                 content={"error": "Unable to recognize audio content"}
             )
         
-        # 2. Send text to enhanced LLM processing (使用当前选择的模型)
-        response = await process_text_with_enhanced_llm(transcription)
+        # 2. Process through enhanced LLM
+        result = await process_text_with_enhanced_llm(
+            transcription, 
+            location="living_room"
+        )
         
-        return response
-    
+        return result
+        
     except Exception as e:
         logger.error(f"Error processing audio: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error processing request: {str(e)}"}
+            content={"error": f"Error processing audio: {str(e)}"}
         )
 
 @app.post("/process_text")
 async def process_text(request: TextRequest):
-    """Process text input and return AI response"""
+    """Process text and return AI response"""
     try:
-        response = await process_text_with_enhanced_llm(request.text)
-        return response
-    
+        result = await process_text_with_enhanced_llm(
+            request.text,
+            location="living_room"
+        )
+        return result
+        
     except Exception as e:
         logger.error(f"Error processing text: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error processing request: {str(e)}"}
+            content={"error": f"Error processing text: {str(e)}"}
         )
-
-@app.post("/process_voice_with_context")
-async def process_voice_with_context(request: ContextualRequest):
-    """Process voice command with user context"""
-    try:
-        # Update user context
-        if request.device_id:
-            user_contexts[request.device_id] = request.user_context or {}
-        
-        # Process with enhanced context
-        response = await process_text_with_enhanced_llm(
-            request.text, 
-            request.user_context, 
-            request.location
-        )
-        
-        # Add recommendations based on context
-        response["recommendations"] = generate_recommendations(
-            request.user_context or {}, 
-            request.location
-        )
-        
-        return response
-    
-    except Exception as e:
-        logger.error(f"Error processing contextual request: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Error processing request: {str(e)}"}
-        )
-
-@app.post("/register_device")
-async def register_device(request: DeviceRegistration):
-    """Register mobile device"""
-    device_id = f"mobile_{int(time.time())}"
-    registered_devices[device_id] = {
-        "device_info": request.device_info,
-        "capabilities": request.capabilities,
-        "last_seen": time.time(),
-        "status": "active"
-    }
-    
-    return {"device_id": device_id, "status": "registered"}
-
-@app.post("/execute_scene")
-async def execute_scene(request: SceneRequest):
-    """Execute scene mode"""
-    try:
-        results = await execute_scene_mode(request.scene_name, request.location)
-        return {
-            "scene": request.scene_name,
-            "location": request.location,
-            "results": results,
-            "status": "success"
-        }
-    except Exception as e:
-        logger.error(f"Error executing scene: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Error executing scene: {str(e)}"}
-        )
-
-@app.get("/room_status/{room}")
-async def get_room_status(room: str):
-    """Get specific room status"""
-    room_devices = {}
-    
-    # Collect all devices in the specified room
-    for device_type, locations in device_states.items():
-        if room in locations and device_type != "sensors":
-            room_devices[device_type] = locations[room]
-    
-    # Get sensor data
-    sensor_data = device_states.get("sensors", {}).get(room, {})
-    
-    return {
-        "room": room,
-        "devices": room_devices,
-        "sensors": sensor_data,
-        "timestamp": time.time()
-    }
 
 async def process_text_with_enhanced_llm(text_input, user_context=None, location="living_room"):
-    """Enhanced text processing with LLM - 使用当前选择的模型"""
+    """Enhanced text processing with current model"""
     
-    # 1. Generate enhanced system prompt
+    # Get current model
+    current_model = model_manager.get_current_model()
+    
+    # 1. Generate system prompt
     system_prompt = get_comprehensive_system_prompt(user_context, location)
     
-    # 2. Send to Ollama (使用动态选择的模型)
-    current_model = model_manager.get_current_model()
+    # 2. Extract IoT commands
+    iot_commands = extract_iot_commands_enhanced(text_input, location)
+    
+    # 3. Execute IoT commands
+    iot_results = []
+    for command in iot_commands:
+        try:
+            iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
+            iot_response = requests.post(iot_url, json=command)
+            if iot_response.status_code == 200:
+                iot_results.append(iot_response.json())
+            else:
+                iot_results.append({"error": f"IoT command failed: {iot_response.text}"})
+        except Exception as e:
+            iot_results.append({"error": f"IoT service error: {str(e)}"})
+    
+    # 4. Generate AI response using current model
     ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
-    ollama_payload = {
-        "model": current_model,  # 使用当前选择的模型
-        "prompt": f"{system_prompt}\n\n用户: {text_input}\n助手:",
+    
+    full_prompt = f"{system_prompt}\n\nUser: {text_input}\n\nAssistant:"
+    
+    ai_payload = {
+        "model": current_model,
+        "prompt": full_prompt,
         "stream": False
     }
     
-    logger.info(f"🤖 Using model: {current_model} for text processing")
+    ai_response = requests.post(ollama_url, json=ai_payload)
+    ai_response.raise_for_status()
     
-    ollama_response = requests.post(ollama_url, json=ollama_payload)
-    ollama_response.raise_for_status()
-    
-    ai_text_response = ollama_response.json().get("response", "")
-    
-    # 3. Enhanced IoT command extraction
-    iot_commands = extract_iot_commands_enhanced(text_input, ai_text_response)
-    
-    # 4. Execute IoT commands
-    iot_results = []
-    if iot_commands:
-        for cmd in iot_commands:
-            if cmd.get("type") == "scene":
-                # Execute scene mode
-                scene_results = await execute_scene_mode(cmd["scene"], location)
-                iot_results.extend(scene_results)
-            else:
-                # Execute individual device command
-                iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
-                iot_response = requests.post(iot_url, json={"commands": [cmd]})
-                if iot_response.status_code == 200:
-                    iot_results.append(iot_response.json())
+    ai_text_response = ai_response.json().get("response", "I apologize, I couldn't process your request.")
     
     # 5. Determine expression/emotion
     expression = determine_expression_enhanced(text_input, ai_text_response, iot_commands)
@@ -695,180 +888,104 @@ def get_comprehensive_system_prompt(user_context=None, location="living_room"):
 
 4. **Exhaust Fan** (exhaust_fan)
    - Locations: kitchen, bathroom
-   - Controls: on/off/speed adjustment/timer
-   - Keywords: 排气扇/抽风机/exhaust fan/extractor fan/ventilation fan
+   - Controls: on/off/speed adjustment(1-3)/timer mode
+   - Keywords: 排气扇/抽风机/exhaust fan
 
-### Environmental Control
+### Climate Control
 5. **Air Conditioner** (ac)
    - Locations: living room, bedroom
-   - Controls: on/off/temperature/mode switching/fan speed
-   - Keywords: 空调/冷气/暖气/air conditioner/AC/aircon/HVAC
+   - Controls: on/off/temperature(16-30°C)/mode(cool/heat/auto)/fan speed
+   - Keywords: 空调/冷气/AC/air conditioner
 
+### Window Control
 6. **Curtain** (curtain)
    - Locations: living room, bedroom, study, bathroom
-   - Controls: open/close/partial opening(0-100%)/timer
-   - Keywords: 窗帘/百叶窗/curtain/blinds/drapes/shades
+   - Controls: open/close/position(0-100%)
+   - Keywords: 窗帘/遮光帘/curtain/blinds
 
-## Scene Mode Support
-- **Home Mode** (home_mode): Turn on living room lights, adjust AC, partially open curtains
-  - Keywords: 回家模式/到家/home mode/arrive home/coming home
-- **Sleep Mode** (sleep_mode): Turn off lights, lower AC temperature, close curtains
-  - Keywords: 睡眠模式/睡觉/晚安/sleep mode/bedtime/goodnight
-- **Work Mode** (work_mode): Turn on study lighting, adjust to work-appropriate brightness
-  - Keywords: 工作模式/学习/办公/work mode/study mode/office mode
-- **Cooking Mode** (cooking_mode): Brightest kitchen lighting, auto exhaust fan
-  - Keywords: 烹饪模式/做饭/cooking mode/kitchen mode
-- **Movie Mode** (movie_mode): Dim living room lights, close curtains
-  - Keywords: 观影模式/看电影/movie mode/cinema mode/watch TV
-- **Bath Mode** (bath_mode): Turn on bathroom lights and exhaust fan
-  - Keywords: 洗浴模式/洗澡/bath mode/shower mode
-
-## Intelligent Response Rules
-- Proactively suggest optimizations based on environmental sensor data
-- Adjust device parameters considering user activity and time of day
-- Clearly state what actions will be performed when executing controls
-- Promptly alert users about environmental anomalies
-- Provide energy-saving suggestions and comfort optimization advice
-- **Always respond in the same language as the user's input**
-- Support mixed Chinese-English commands
-- Understand colloquial expressions and smart home slang
-
-Please intelligently control devices based on user's natural language instructions and provide thoughtful suggestions. Always respond in the same language as the user's input."""
+## Response Guidelines
+- Always respond in the same language as the user's input
+- Provide helpful, contextual responses about device control
+- If no IoT commands are detected, engage in normal conversation
+- Include environmental awareness in your responses
+- Be concise but informative
+- Use natural, friendly language"""
 
     return system_prompt
 
-def format_all_device_states(device_states):
-    """Format all device states"""
-    result = []
+def format_all_device_states(current_device_states):
+    """Format all device states for system prompt"""
+    device_status = []
     
-    # 处理天花板灯
-    if "ceiling_light" in device_states:
-        result.append("### 天花板灯")
-        for location, state in device_states["ceiling_light"].items():
-            status = "开启" if state.get("status") == "on" else "关闭"
-            brightness = state.get("brightness", 0)
-            color_temp = state.get("color_temp", 4000)
-            result.append(f"- {location}：{status}，亮度 {brightness}%，色温 {color_temp}K")
+    for device_type, locations in current_device_states.items():
+        if device_type == "sensors":
+            continue
+            
+        device_status.append(f"\n**{device_type.replace('_', ' ').title()}:**")
+        for location, state in locations.items():
+            status_parts = []
+            for key, value in state.items():
+                if key == "status":
+                    status_parts.append(f"{key}: {value}")
+                else:
+                    status_parts.append(f"{key}: {value}")
+            
+            device_status.append(f"  - {location}: {', '.join(status_parts)}")
     
-    # 处理台灯
-    if "desk_lamp" in device_states:
-        result.append("### 台灯")
-        for location, state in device_states["desk_lamp"].items():
-            status = "开启" if state.get("status") == "on" else "关闭"
-            brightness = state.get("brightness", 0)
-            color_temp = state.get("color_temp", 4000)
-            result.append(f"- {location}：{status}，亮度 {brightness}%，色温 {color_temp}K")
-    
-    # 处理风扇
-    if "fan" in device_states:
-        result.append("### 风扇")
-        for location, state in device_states["fan"].items():
-            status = "开启" if state.get("status") == "on" else "关闭"
-            speed = state.get("speed", 1)
-            oscillation = "摇摆" if state.get("oscillation") else "固定"
-            result.append(f"- {location}：{status}，档速 {speed}，{oscillation}")
-    
-    # 处理排气扇
-    if "exhaust_fan" in device_states:
-        result.append("### 排气扇")
-        for location, state in device_states["exhaust_fan"].items():
-            status = "开启" if state.get("status") == "on" else "关闭"
-            speed = state.get("speed", 1)
-            timer = state.get("timer", 0)
-            timer_text = f"，定时 {timer}分钟" if timer > 0 else ""
-            result.append(f"- {location}：{status}，档速 {speed}{timer_text}")
-    
-    # 处理空调
-    if "ac" in device_states:
-        result.append("### 空调")
-        for location, state in device_states["ac"].items():
-            status = "开启" if state.get("status") == "on" else "关闭"
-            temp = state.get("temperature", 26)
-            mode = state.get("mode", "cool")
-            fan_speed = state.get("fan_speed", "auto")
-            result.append(f"- {location}：{status}，温度 {temp}°C，模式 {mode}，风速 {fan_speed}")
-    
-    # 处理窗帘
-    if "curtain" in device_states:
-        result.append("### 窗帘")
-        for location, state in device_states["curtain"].items():
-            status = state.get("status", "closed")
-            position = state.get("position", 0)
-            result.append(f"- {location}：{status}，开启程度 {position}%")
-    
-    return "\n".join(result)
+    return '\n'.join(device_status)
 
 def format_environmental_data(sensors_data):
     """Format environmental sensor data"""
     if not sensors_data:
-        return "环境传感器数据暂不可用"
+        return "No environmental data available"
     
-    result = []
+    env_status = []
     for location, data in sensors_data.items():
-        temp = data.get('temperature', 0)
-        humidity = data.get('humidity', 0)
-        co2 = data.get('co2', 0)
-        voc = data.get('voc', 0)
-        light = data.get('light_level', 0)
-        
-        # 添加环境状态评估
-        status_indicators = []
-        if co2 > 800:
-            status_indicators.append("CO2偏高")
-        if humidity > 70:
-            status_indicators.append("湿度偏高")
-        if temp > 28:
-            status_indicators.append("温度偏高")
-        elif temp < 18:
-            status_indicators.append("温度偏低")
-        
-        status_text = f" ({', '.join(status_indicators)})" if status_indicators else " (正常)"
-        
-        result.append(f"- {location}：温度 {temp}°C，湿度 {humidity}%，CO2 {co2}ppm，VOC {voc}ppb，光照 {light}lux{status_text}")
+        env_status.append(f"\n**{location.replace('_', ' ').title()}:**")
+        env_status.append(f"  - Temperature: {data.get('temperature', 'N/A')}°C")
+        env_status.append(f"  - Humidity: {data.get('humidity', 'N/A')}%")
+        env_status.append(f"  - CO2: {data.get('co2', 'N/A')} ppm")
+        env_status.append(f"  - VOC: {data.get('voc', 'N/A')} ppb")
+        env_status.append(f"  - Light Level: {data.get('light_level', 'N/A')} lux")
+        env_status.append(f"  - Motion: {'Detected' if data.get('motion', False) else 'None'}")
     
-    return "\n".join(result)
+    return '\n'.join(env_status)
 
-def extract_iot_commands_enhanced(user_input, ai_response):
-    """Enhanced IoT command extraction"""
-    commands = []
+def extract_iot_commands_enhanced(user_input, default_location="living_room"):
+    """Enhanced IoT command extraction with better parsing"""
     user_lower = user_input.lower()
+    commands = []
     
-    # 设备关键词映射
+    # Device keyword mapping
     device_keywords = {
-        # 天花板灯
+        # 灯光设备
         "天花板灯": "ceiling_light", "吸顶灯": "ceiling_light", "主灯": "ceiling_light",
-        "ceiling light": "ceiling_light", "main light": "ceiling_light",
-        
-        # 台灯
         "台灯": "desk_lamp", "桌灯": "desk_lamp", "床头灯": "desk_lamp",
-        "desk lamp": "desk_lamp", "table lamp": "desk_lamp",
+        "ceiling light": "ceiling_light", "main light": "ceiling_light", "overhead light": "ceiling_light",
+        "desk lamp": "desk_lamp", "table lamp": "desk_lamp", "bedside lamp": "desk_lamp",
+        "light": "ceiling_light", "lights": "ceiling_light", "灯": "ceiling_light",
         
-        # 风扇
-        "风扇": "fan", "电扇": "fan",
-        "fan": "fan",
-        
-        # 排气扇
+        # 风扇设备
+        "风扇": "fan", "电扇": "fan", "吊扇": "fan",
         "排气扇": "exhaust_fan", "抽风机": "exhaust_fan",
-        "exhaust fan": "exhaust_fan", "extractor": "exhaust_fan",
+        "fan": "fan", "ceiling fan": "fan",
+        "exhaust fan": "exhaust_fan", "exhaust": "exhaust_fan",
         
-        # 空调
+        # 空调设备
         "空调": "ac", "冷气": "ac", "暖气": "ac",
-        "air conditioner": "ac", "ac": "ac",
+        "air conditioner": "ac", "aircon": "ac", "ac": "ac",
         
-        # 窗帘
-        "窗帘": "curtain", "百叶窗": "curtain",
-        "curtain": "curtain", "blinds": "curtain",
-        
-        # 兼容原有的light（映射到ceiling_light）
-        "light": "ceiling_light", "灯": "ceiling_light"
+        # 窗帘设备
+        "窗帘": "curtain", "遮光帘": "curtain", "百叶窗": "curtain",
+        "curtain": "curtain", "curtains": "curtain", "blinds": "curtain"
     }
     
-    # 动作关键词映射
+    # Action keyword mapping
     action_keywords = {
-        # 基础控制
-        "开": "on", "打开": "on", "启动": "on", "开启": "on",
-        "关": "off", "关闭": "off", "停止": "off", "关掉": "off",
-        "turn on": "on", "open": "on", "start": "on",
+        # 开关控制
+        "打开": "on", "开": "on", "开启": "on", "启动": "on",
+        "关闭": "off", "关": "off", "停止": "off", "关掉": "off",
+        "turn on": "on", "open": "on", "start": "on", "enable": "on",
         "turn off": "off", "close": "off", "stop": "off",
         
         # 亮度控制
@@ -932,287 +1049,153 @@ def extract_iot_commands_enhanced(user_input, ai_response):
     # 检查设备控制
     for device_keyword, device_type in device_keywords.items():
         if device_keyword in user_lower:
-            # 确定位置
-            location = "living_room"  # 默认位置
-            for loc_keyword, loc_value in location_keywords.items():
-                if loc_keyword in user_lower:
-                    location = loc_value
-                    break
-            
-            # 确定动作
+            # 查找动作
             action = "on"  # 默认动作
-            parameters = {}
-            
-            for action_keyword, action_value in action_keywords.items():
+            for action_keyword, action_type in action_keywords.items():
                 if action_keyword in user_lower:
-                    action = action_value
+                    action = action_type
                     break
             
-            # 检查特定参数
-            # 亮度设置
-            brightness_match = re.search(r'(\d+)%|(\d+)成|亮度(\d+)', user_lower)
-            if brightness_match:
-                brightness = int(brightness_match.group(1) or brightness_match.group(2) or brightness_match.group(3))
-                parameters["brightness"] = min(100, max(0, brightness))
-                action = "set_brightness"
-            
-            # 温度设置
-            temp_match = re.search(r'(\d+)度|(\d+)°', user_lower)
-            if temp_match:
-                temperature = int(temp_match.group(1) or temp_match.group(2))
-                parameters["temperature"] = min(30, max(16, temperature))
-                action = "set_temperature"
-            
-            # 速度设置
-            speed_match = re.search(r'(\d+)档|(\d+)级', user_lower)
-            if speed_match:
-                speed = int(speed_match.group(1) or speed_match.group(2))
-                parameters["speed"] = min(5, max(1, speed))
-                action = "set_speed"
-            
-            # 位置设置（窗帘）
-            position_match = re.search(r'开启(\d+)%|打开(\d+)%', user_lower)
-            if position_match and device_type == "curtain":
-                position = int(position_match.group(1) or position_match.group(2))
-                parameters["position"] = min(100, max(0, position))
-                action = "set_position"
+            # 查找位置
+            location = default_location
+            for location_keyword, location_type in location_keywords.items():
+                if location_keyword in user_lower:
+                    location = location_type
+                    break
             
             commands.append({
-                "device": device_type,
-                "action": action,
+                "device_type": device_type,
                 "location": location,
-                "parameters": parameters
+                "action": action
             })
+            break
     
     return commands
 
-async def execute_scene_mode(scene_name, location=None):
-    """Execute predefined scene modes"""
-    scene_commands = []
-    
-    if scene_name == "home_mode":
-        # 回家模式
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {"brightness": 70}},
-            {"device": "ac", "action": "on", "location": "living_room", "parameters": {"temperature": 25}},
-            {"device": "curtain", "action": "set_position", "location": "living_room", "parameters": {"position": 50}}
-        ]
-    
-    elif scene_name == "sleep_mode":
-        # 睡眠模式
-        target_location = location or "bedroom"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "off", "location": target_location},
-            {"device": "desk_lamp", "action": "off", "location": target_location},
-            {"device": "ac", "action": "set_temperature", "location": target_location, "parameters": {"temperature": 24}},
-            {"device": "curtain", "action": "off", "location": target_location},
-            # 关闭其他房间主要灯光
-            {"device": "ceiling_light", "action": "off", "location": "living_room"},
-            {"device": "ceiling_light", "action": "off", "location": "kitchen"}
-        ]
-    
-    elif scene_name == "work_mode":
-        # 工作模式
-        target_location = location or "study"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": target_location, "parameters": {"brightness": 80, "color_temp": 4500}},
-            {"device": "desk_lamp", "action": "on", "location": target_location, "parameters": {"brightness": 70}},
-            {"device": "curtain", "action": "set_position", "location": target_location, "parameters": {"position": 30}}
-        ]
-    
-    elif scene_name == "cooking_mode":
-        # 烹饪模式
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {"brightness": 100}},
-            {"device": "exhaust_fan", "action": "on", "location": "kitchen", "parameters": {"speed": 2}}
-        ]
-    
-    elif scene_name == "movie_mode":
-        # 观影模式
-        target_location = location or "living_room"
-        scene_commands = [
-            {"device": "ceiling_light", "action": "dim", "location": target_location, "parameters": {"brightness": 20}},
-            {"device": "curtain", "action": "off", "location": target_location},
-            {"device": "ac", "action": "on", "location": target_location, "parameters": {"temperature": 24}}
-        ]
-    
-    elif scene_name == "bath_mode":
-        # 洗浴模式
-        scene_commands = [
-            {"device": "ceiling_light", "action": "on", "location": "bathroom", "parameters": {"brightness": 80}},
-            {"device": "exhaust_fan", "action": "on", "location": "bathroom", "parameters": {"speed": 2, "timer": 30}}
-        ]
-    
-    # 执行场景命令
-    results = []
-    for cmd in scene_commands:
-        try:
-            iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
-            iot_response = requests.post(iot_url, json={"commands": [cmd]})
-            if iot_response.status_code == 200:
-                results.append(iot_response.json())
-            else:
-                results.append({"status": "error", "command": cmd, "error": "IoT service error"})
-        except Exception as e:
-            results.append({"status": "error", "command": cmd, "error": str(e)})
-    
-    return results
-
 def determine_expression_enhanced(user_input, ai_response, iot_commands):
-    """Enhanced expression determination"""
+    """Determine facial expression based on context"""
     user_lower = user_input.lower()
+    response_lower = ai_response.lower()
     
-    # 基于场景模式的表情
-    for cmd in iot_commands:
-        if cmd.get("type") == "scene":
-            scene = cmd.get("scene")
-            if scene == "sleep_mode":
-                return "sleeping"
-            elif scene == "work_mode":
-                return "working"
-            elif scene == "cooking_mode":
-                return "cooking"
-            elif scene == "home_mode":
-                return "happy"
-            elif scene == "movie_mode":
-                return "relaxing"
+    # Positive expressions
+    if any(word in user_lower for word in ["谢谢", "太好了", "很棒", "喜欢", "开心", "thank you", "great", "awesome", "love", "happy"]):
+        return "happy"
     
-    # 基于用户情绪的表情
-    if any(word in user_lower for word in ["谢谢", "感谢", "太好了", "棒", "great", "thanks", "wonderful"]):
-        return "smile"
-    elif any(word in user_lower for word in ["什么", "怎么", "为什么", "how", "what", "why"]):
-        return "thinking"
-    elif any(word in ai_response.lower() for word in ["抱歉", "对不起", "sorry", "apologize"]):
+    # Negative expressions
+    if any(word in user_lower for word in ["不好", "糟糕", "讨厌", "不行", "错误", "bad", "terrible", "hate", "wrong", "error"]):
         return "sad"
-    elif any(word in user_lower for word in ["惊喜", "哇", "amazing", "wow", "surprise"]):
+    
+    # Surprised expressions
+    if any(word in user_lower for word in ["什么", "怎么", "为什么", "真的吗", "what", "how", "why", "really"]):
         return "surprised"
-    elif any(word in user_lower for word in ["困惑", "不懂", "confused", "don't understand"]):
-        return "confused"
-    else:
-        return "neutral"
+    
+    # Thoughtful expressions
+    if any(word in response_lower for word in ["让我想想", "分析", "考虑", "think", "analyze", "consider"]):
+        return "thinking"
+    
+    # IoT control expressions
+    if iot_commands:
+        return "focused"
+    
+    return "neutral"
 
-def generate_recommendations(user_context, location):
-    """Generate personalized recommendations"""
-    recommendations = []
-    activity = user_context.get("activity", "")
-    time_of_day = user_context.get("time_of_day", "")
-    
-    # 基于活动的建议
-    if activity == "reading":
-        recommendations.append("建议调节护眼模式：台灯亮度70%，色温4000K")
-    elif activity == "sleeping":
-        recommendations.append("建议开启睡眠模式：关闭主要灯光，调低空调温度")
-    elif activity == "cooking":
-        recommendations.append("建议开启厨房模式：最亮照明，自动排气扇")
-    elif activity == "working":
-        recommendations.append("建议开启工作模式：充足照明，适宜温度")
-    
-    # 基于时间的建议
-    current_hour = time.localtime().tm_hour
-    if current_hour >= 22 or current_hour <= 6:
-        recommendations.append("夜间模式：建议使用暖色调照明，降低整体亮度")
-    elif 6 <= current_hour <= 9:
-        recommendations.append("早晨模式：逐渐提高亮度，保持新鲜空气循环")
-    elif 18 <= current_hour <= 22:
-        recommendations.append("傍晚模式：温暖照明，营造放松氛围")
-    
-    # 基于环境数据的建议
-    sensors = device_states.get("sensors", {}).get(location, {})
-    if sensors:
-        co2 = sensors.get("co2", 0)
-        humidity = sensors.get("humidity", 0)
-        temperature = sensors.get("temperature", 0)
-        light_level = sensors.get("light_level", 0)
-        
-        if co2 > 800:
-            recommendations.append("CO2浓度较高，建议开窗通风或开启排气扇")
-        if humidity > 70:
-            recommendations.append("湿度较高，建议开启除湿功能或排气扇")
-        if temperature > 28:
-            recommendations.append("温度较高，建议开启空调或风扇")
-        elif temperature < 18:
-            recommendations.append("温度较低，建议开启暖气或关闭风扇")
-        if light_level < 100 and 8 <= current_hour <= 20:
-            recommendations.append("光线不足，建议开启照明设备")
-    
-    return recommendations
+# ==================== WebSocket处理 ====================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Enhanced WebSocket connection handler with model management"""
+    """Enhanced WebSocket endpoint with model management support"""
     await websocket.accept()
     client_id = id(websocket)
     connected_clients[client_id] = websocket
     
     try:
-        # Send initial connection info including current model
+        # Send initial connection message with current model info
         await websocket.send_json({
             "type": "connection_established",
-            "client_id": str(client_id),
+            "client_id": client_id,
             "current_model": model_manager.get_current_model(),
-            "available_models": await model_manager.get_available_models(),
-            "timestamp": time.time(),
-            "message": "Connected to Enhanced AI Voice Assistant Coordinator"
+            "config_exists": model_manager.get_config_status()["config_exists"],
+            "timestamp": time.time()
         })
         
         while True:
             data = await websocket.receive_text()
-            try:
-                message = json.loads(data)
-                message_type = message.get("type")
+            message = json.loads(data)
+            message_type = message.get("type", "")
+            
+            if message_type == "text":
+                # Text processing
+                text_input = message.get("text", "")
+                user_context = message.get("user_context", {})
+                location = message.get("location", "living_room")
                 
-                if message_type == "text":
-                    # Process text message with context
-                    user_context = message.get("user_context")
-                    location = message.get("location", "living_room")
-                    
+                try:
                     response = await process_text_with_enhanced_llm(
-                        message.get("text", ""), 
+                        text_input, 
                         user_context, 
                         location
                     )
-                    await websocket.send_json(response)
-                
-                elif message_type == "audio_ready":
-                    # Process audio ready notification
-                    audio_path = message.get("path")
-                    response = await process_audio(AudioRequest(audio_path=audio_path))
-                    await websocket.send_json(response)
-                
-                elif message_type == "scene_command":
-                    # Execute scene mode
-                    scene_name = message.get("scene")
-                    location = message.get("location")
-                    results = await execute_scene_mode(scene_name, location)
                     
                     await websocket.send_json({
-                        "type": "scene_result",
-                        "scene": scene_name,
-                        "results": results
+                        "type": "text_response",
+                        "response": response,
+                        "client_id": client_id
                     })
+                    
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": f"Text processing failed: {str(e)}"
+                    })
+            
+            elif message_type == "audio_ready":
+                # Audio processing
+                audio_path = message.get("audio_path", "")
                 
-                elif message_type == "model_switch":
-                    # Handle model switch request via WebSocket
-                    model_name = message.get("model_name")
-                    if model_name:
+                try:
+                    audio_request = AudioRequest(audio_path=audio_path)
+                    response = await process_audio(audio_request)
+                    
+                    await websocket.send_json({
+                        "type": "audio_response",
+                        "response": response,
+                        "client_id": client_id
+                    })
+                    
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": f"Audio processing failed: {str(e)}"
+                    })
+            
+            elif message_type == "model_switch":
+                # Model switching via WebSocket
+                model_name = message.get("model_name", "")
+                
+                if model_name:
+                    try:
+                        # Get available models first
                         available_models = await model_manager.get_available_models(force_refresh=True)
                         
                         if model_name in available_models:
+                            # Switch model
                             success = model_manager.set_current_model(model_name)
+                            
                             if success:
-                                # Test the new model
+                                # Test new model
                                 test_result = await test_model_functionality(model_name)
                                 
                                 if test_result["success"]:
-                                    # Broadcast to all clients
-                                    await broadcast_model_switch(model_name)
-                                    
                                     await websocket.send_json({
                                         "type": "model_switch_result",
                                         "success": True,
                                         "new_model": model_name,
-                                        "test_result": test_result
+                                        "test_result": test_result,
+                                        "config_updated": model_manager.get_config_status()["config_exists"]
                                     })
+                                    
+                                    # Broadcast to other clients
+                                    await broadcast_model_switch(model_name)
                                 else:
                                     await websocket.send_json({
                                         "type": "model_switch_result",
@@ -1232,9 +1215,16 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "success": False,
                                 "error": f"Model not available: {model_name}"
                             })
-                
-                elif message_type == "get_models":
-                    # Get available models
+                    
+                    except Exception as e:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": f"Model switch error: {str(e)}"
+                        })
+            
+            elif message_type == "get_models":
+                # Get available models
+                try:
                     models = await model_manager.get_available_models(force_refresh=True)
                     current_model = model_manager.get_current_model()
                     
@@ -1251,42 +1241,25 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({
                         "type": "models_list",
                         "current_model": current_model,
-                        "available_models": model_list
+                        "available_models": model_list,
+                        "config_status": model_manager.get_config_status()
                     })
                 
-                elif message_type == "device_registration":
-                    # Register device
-                    device_info = message.get("device_info", {})
-                    capabilities = message.get("capabilities", [])
-                    
-                    device_id = f"ws_{client_id}"
-                    registered_devices[device_id] = {
-                        "device_info": device_info,
-                        "capabilities": capabilities,
-                        "websocket_id": client_id,
-                        "last_seen": time.time(),
-                        "status": "active"
-                    }
-                    
+                except Exception as e:
                     await websocket.send_json({
-                        "type": "registration_result",
-                        "device_id": device_id,
-                        "status": "registered",
-                        "current_model": model_manager.get_current_model()
+                        "type": "error",
+                        "error": f"Failed to get models: {str(e)}"
                     })
-                
-                elif message_type == "ping":
-                    await websocket.send_json({
-                        "type": "pong",
-                        "current_model": model_manager.get_current_model(),
-                        "timestamp": time.time()
-                    })
-                
-                else:
-                    await websocket.send_json({"error": "Unknown message type"})
             
-            except json.JSONDecodeError:
-                await websocket.send_json({"error": "Invalid JSON format"})
+            elif message_type == "ping":
+                await websocket.send_json({
+                    "type": "pong",
+                    "current_model": model_manager.get_current_model(),
+                    "timestamp": time.time()
+                })
+            
+            else:
+                await websocket.send_json({"error": "Unknown message type"})
     
     except WebSocketDisconnect:
         if client_id in connected_clients:
@@ -1306,20 +1279,6 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket error: {str(e)}")
         if client_id in connected_clients:
             del connected_clients[client_id]
-
-# 启动时初始化模型管理器
-@app.on_event("startup")
-async def startup_event():
-    """Enhanced startup with model initialization"""
-    logger.info("🚀 Enhanced AI Voice Assistant Coordinator starting up...")
-    
-    # Initialize model manager
-    await model_manager.get_available_models(force_refresh=True)
-    
-    logger.info(f"🤖 Current model: {model_manager.get_current_model()}")
-    logger.info(f"📋 Available models: {model_manager.available_models}")
-    
-    logger.info("✅ Enhanced Coordinator Service startup complete")
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
