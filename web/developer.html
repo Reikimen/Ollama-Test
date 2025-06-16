@@ -749,7 +749,7 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    testResult.innerHTML = `✅ Model test successful! Response time: ${responseTime}ms<br><small>Response: "${data.ai_response.substring(0, 50)}..."</small>`;
+                    testResult.innerHTML = `✅ Model test successful! Response time: ${responseTime}ms<br><small>Response: "${data.ai_response.substring(0, 10000)}..."</small>`;
                     testResult.className = 'text-success';
                     
                     // 更新性能指标
@@ -982,7 +982,7 @@
                         
                     default:
                         // 对于未知消息类型，安全显示
-                        const safeData = JSON.stringify(data, null, 2).substring(0, 500); // 限制长度
+                        const safeData = JSON.stringify(data, null, 2).substring(0, 20000); // 限制长度
                         outputArea.innerHTML += `<div class="console-output">📨 Received: ${safeData}</div>`;
                         break;
                 }
@@ -1277,7 +1277,7 @@
                             data = JSON.parse(event.data);
                         } catch (parseError) {
                             console.error('WebSocket JSON parse error:', parseError);
-                            outputArea.innerHTML += `<div class="console-output error">❌ Invalid JSON: ${event.data.substring(0, 100)}...</div>`;
+                            outputArea.innerHTML += `<div class="console-output error">❌ Invalid JSON: ${event.data.substring(0, 10000)}...</div>`;
                             outputArea.scrollTop = outputArea.scrollHeight;
                             return;
                         }
@@ -1339,7 +1339,7 @@
                             
                         } else {
                             // 对于其他消息类型，安全显示
-                            const safeMessage = JSON.stringify(data, null, 2).substring(0, 300);
+                            const safeMessage = JSON.stringify(data, null, 2).substring(0, 10000);
                             outputArea.innerHTML += `<div class="console-output">📨 Message: ${safeMessage}</div>`;
                         }
                         

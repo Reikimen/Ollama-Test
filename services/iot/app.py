@@ -761,6 +761,15 @@ async def websocket_endpoint(websocket: WebSocket):
                         "timestamp": time.time()
                     })
                 
+                elif command_type == "get_status":
+                    await websocket.send_json({
+                        "type": "status_response",
+                        "devices": device_states,
+                        "sensors": device_states.get("sensors", {}),
+                        "connected_clients": len(connected_devices),
+                        "timestamp": time.time()
+                    })
+                
                 else:
                     await websocket.send_json({
                         "type": "error",

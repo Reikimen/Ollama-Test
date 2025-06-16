@@ -1257,6 +1257,31 @@ async def websocket_endpoint(websocket: WebSocket):
                     "current_model": model_manager.get_current_model(),
                     "timestamp": time.time()
                 })
+
+            elif message_type == "get_status":
+                try:
+                    # 获取所有服务状态
+                    iot_response = requests.get(f"http://{IOT_HOST}:8002/devices", timeout=5)
+                    devices = iot_response.json() if iot_response.status_code == 200 else {}
+                    
+                    sensors_response = requests.get(f"http://{IOT_HOST}:8002/sensors", timeout=5)
+                    sensors = sensors_response.json() if sensors_response.status_code == 200 else {}
+                    
+                    await websocket.send_json({
+                        "type": "status_response",
+                        "devices": devices,
+                        "sensors": sensors,
+                        "current_model": model_manager.get_current_model(),
+                        "connected_clients": len(connected_clients),
+                        "registered_devices": len(registered_devices),
+                        "timestamp": time.time()
+                    })
+                    
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Failed to get status: {str(e)}"
+                    })
             
             else:
                 await websocket.send_json({"error": "Unknown message type"})

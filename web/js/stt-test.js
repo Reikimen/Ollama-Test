@@ -433,7 +433,7 @@ function debugSTTService() {
                 outputArea.innerHTML += `<div class="console-output">
                     ${endpoint.description}: Status ${response.status}<br>
                     Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}<br>
-                    Response: ${responseText.substring(0, 500)}${responseText.length > 500 ? '...' : ''}
+                    Response: ${responseText.substring(0, 50000)}${responseText.length > 50000 ? '...' : ''}
                 </div>`;
                 
             } catch (error) {
