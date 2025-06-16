@@ -187,6 +187,9 @@ void handleMessage(const char* message) {
       Serial.printf("   💨 CO2: %dppm, VOC: %dppb\n",
                     sensors["co2"].as<int>(),
                     sensors["voc"].as<int>());
+      Serial.printf("   ☀️ Light: %dlux, Motion: %s\n",
+                    sensors["light_level"].as<int>(),
+                    sensors["motion"].as<bool>() ? "Detected" : "None");
       Serial.printf("   📊 Data source: %s (%s)\n", 
                     source.c_str(), 
                     realData ? "Real" : "Simulated");

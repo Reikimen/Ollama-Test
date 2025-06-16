@@ -1,12 +1,24 @@
 // 传感器启用配置
-#define ENABLE_VEML7700 false  // 光照传感器
+#define ENABLE_VEML7700 false  // I2C光照传感器
+#define ENABLE_GL5539 true     // 模拟光敏电阻传感器 (与VEML7700二选一)
 #define ENABLE_ENS160 true     // 空气质量传感器
 #define ENABLE_AHT21 true      // 温湿度传感器
+
+// 光照传感器二选一检查
+#if ENABLE_VEML7700 && ENABLE_GL5539
+#error "只能启用一个光照传感器：VEML7700或GL5539，请设置其中一个为false"
+#endif
 
 // 传感器I2C地址
 #define VEML7700_ADDR 0x10
 #define ENS160_ADDR 0x53
 #define AHT21_ADDR 0x38
+
+// GL5539光敏电阻配置
+#define GL5539_ANALOG_PIN A0    // ESP8266的模拟输入引脚
+#define GL5539_VCC 3.3          // 供电电压
+#define GL5539_R_PULLUP 10000   // 上拉电阻值 (10kΩ)
+#define GL5539_ADC_MAX 1024     // ESP8266 ADC最大值
 
 // ENS160寄存器地址
 #define ENS160_PART_ID 0x00
@@ -65,36 +77,6 @@ void scanI2CDevices() {
   Serial.println();
 }
 
-void initSensors() {
-  #if ENABLE_AHT21
-  // 初始化AHT21
-  Wire.beginTransmission(AHT21_ADDR);
-  Wire.write(AHT21_INIT_CMD);
-  Wire.write(0x08);
-  Wire.write(0x00);
-  byte error = Wire.endTransmission();
-  if (error == 0) {
-    Serial.println("✅ AHT21 初始化完成");
-  } else {
-    Serial.println("❌ AHT21 初始化失败");
-  }
-  delay(10);
-  #endif
-  
-  #if ENABLE_ENS160
-  // 初始化ENS160
-  Wire.beginTransmission(ENS160_ADDR);
-  Wire.write(ENS160_OPMODE);
-  Wire.write(0x02); // 标准操作模式
-  byte error2 = Wire.endTransmission();
-  if (error2 == 0) {
-    Serial.println("✅ ENS160 初始化完成");
-  } else {
-    Serial.println("❌ ENS160 初始化失败");
-  }
-  delay(100);
-  #endif
-}
 
 #if ENABLE_AHT21
 bool readAHT21() {
@@ -233,6 +215,64 @@ bool readENS160() {
 }
 #endif
 
+#if ENABLE_GL5539
+bool readGL5539() {
+  // 读取ADC值
+  int adcValue = analogRead(GL5539_ANALOG_PIN);
+  
+  // 计算光敏电阻的电阻值
+  // 电路：VCC -- R_pullup -- ADC_pin -- LDR -- GND
+  // ADC电压 = VCC * ADC_value / ADC_max
+  // LDR电阻 = R_pullup * ADC_value / (ADC_max - ADC_value)
+  
+  if (adcValue >= GL5539_ADC_MAX - 1) {
+    // 防止除零错误，ADC值接近最大值时LDR电阻非常大（很暗）
+    Serial.println("❌ GL5539 读取失败：环境过暗或传感器故障");
+    return false;
+  }
+  
+  // 计算光敏电阻值
+  float ldrResistance = (float)GL5539_R_PULLUP * adcValue / (GL5539_ADC_MAX - adcValue);
+  
+  // 将电阻值转换为光照强度 (lux)
+  // GL5539典型特性：10lux时约10kΩ，100lux时约1kΩ
+  // 使用经验公式：lux = A / (resistance^B)，其中A和B是校准常数
+  float lux;
+  
+  if (ldrResistance > 50000) {
+    // 电阻很大，环境很暗
+    lux = 1.0;
+  } else if (ldrResistance < 100) {
+    // 电阻很小，环境很亮
+    lux = 2000.0;
+  } else {
+    // 使用校准公式计算
+    // 基于GL5539典型特性曲线的近似公式
+    lux = 12500000.0 / pow(ldrResistance, 1.4);
+  }
+  
+  // 数据有效性检查
+  if (lux >= 0 && lux <= 10000 && adcValue >= 10) {
+    // 更新全局变量
+    g_light_level = (int)lux;
+    
+    Serial.print("✅ GL5539 - ADC: ");
+    Serial.print(adcValue);
+    Serial.print(", 电阻: ");
+    Serial.print(ldrResistance, 0);
+    Serial.print(" Ω, 光照强度: ");
+    Serial.print(lux, 1);
+    Serial.println(" lux");
+    
+    return true;
+  } else {
+    Serial.printf("❌ GL5539 数据异常 - ADC: %d, 电阻: %.0fΩ, Lux: %.1f\n", 
+                  adcValue, ldrResistance, lux);
+    return false;
+  }
+}
+#endif
+
 #if ENABLE_VEML7700
 bool readVEML7700() {
   // 读取环境光数据
@@ -271,6 +311,49 @@ bool readVEML7700() {
 }
 #endif
 
+void initSensors() {
+  #if ENABLE_AHT21
+  // 初始化AHT21
+  Wire.beginTransmission(AHT21_ADDR);
+  Wire.write(AHT21_INIT_CMD);
+  Wire.write(0x08);
+  Wire.write(0x00);
+  byte error = Wire.endTransmission();
+  if (error == 0) {
+    Serial.println("✅ AHT21 初始化完成");
+  } else {
+    Serial.println("❌ AHT21 初始化失败");
+  }
+  delay(10);
+  #endif
+  
+  #if ENABLE_ENS160
+  // 初始化ENS160
+  Wire.beginTransmission(ENS160_ADDR);
+  Wire.write(ENS160_OPMODE);
+  Wire.write(0x02); // 标准操作模式
+  byte error2 = Wire.endTransmission();
+  if (error2 == 0) {
+    Serial.println("✅ ENS160 初始化完成");
+  } else {
+    Serial.println("❌ ENS160 初始化失败");
+  }
+  delay(100);
+  #endif
+  
+  #if ENABLE_GL5539
+  // 初始化GL5539光敏电阻 (模拟引脚，无需特殊初始化)
+  pinMode(GL5539_ANALOG_PIN, INPUT);
+  Serial.println("✅ GL5539 光敏电阻初始化完成");
+  Serial.printf("   - 使用引脚: A%d\n", GL5539_ANALOG_PIN);
+  Serial.printf("   - 上拉电阻: %d Ω\n", GL5539_R_PULLUP);
+  #endif
+  
+  #if ENABLE_VEML7700
+  Serial.println("✅ VEML7700 I2C光照传感器已启用");
+  #endif
+}
+
 bool readAllSensors() {
   bool anyDataRead = false;
   
@@ -290,6 +373,12 @@ bool readAllSensors() {
   
   #if ENABLE_VEML7700
   if (readVEML7700()) {
+    anyDataRead = true;
+  }
+  #endif
+  
+  #if ENABLE_GL5539
+  if (readGL5539()) {
     anyDataRead = true;
   }
   #endif
