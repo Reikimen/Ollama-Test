@@ -72,10 +72,11 @@ services:
       - iot-control
     volumes:
       - ./data:/app/data
+      - ./config/coordinator:/app/config  # 新增：配置持久化目录
     environment:
       - OLLAMA_HOST=ollama
       - OLLAMA_PORT=11434
-      - OLLAMA_MODEL=llama3:8b
+      - OLLAMA_DEFAULT_MODEL=llama3:8b  # 默认模型（首次启动时使用）
       - STT_HOST=stt-service
       - STT_PORT=8000
       - TTS_HOST=tts-service
