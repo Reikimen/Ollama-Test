@@ -528,6 +528,88 @@ async def switch_model(request: ModelSwitchRequest):
             }
         )
 
+# Add this endpoint to your services/coordinator/app.py
+# Place it after the @app.post("/models/switch") endpoint
+
+@app.post("/models/pull")
+async def pull_model(request: ModelPullRequest):
+    """Download/pull a new model - matches your JavaScript expectation"""
+    try:
+        model_name = request.model_name.strip()
+        logger.info(f"🔄 Starting model pull: {model_name}")
+        
+        if not model_name:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Model name is required"
+                }
+            )
+        
+        # Make request to Ollama service
+        ollama_url = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/pull"
+        pull_payload = {"name": model_name}  # Ollama expects 'name' parameter
+        
+        logger.info(f"📡 Requesting model from Ollama: {ollama_url}")
+        
+        response = requests.post(
+            ollama_url,
+            json=pull_payload,
+            timeout=600  # 10 minutes for large models
+        )
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Successfully pulled model: {model_name}")
+            
+            # Refresh model list
+            await model_manager.get_available_models(force_refresh=True)
+            
+            # Test the model works
+            test_result = await test_model_functionality(model_name)
+            
+            # Return format your JavaScript expects
+            return {
+                "success": True,
+                "message": f"Model {model_name} downloaded successfully",
+                "model_name": model_name,
+                "test_result": test_result
+            }
+        else:
+            error_text = response.text
+            logger.error(f"❌ Model pull failed: HTTP {response.status_code}")
+            
+            return JSONResponse(
+                status_code=response.status_code,
+                content={
+                    "success": False,
+                    "error": f"Failed to download model: {error_text}",
+                    "model_name": model_name
+                }
+            )
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"❌ Timeout pulling model {model_name}")
+        return JSONResponse(
+            status_code=408,
+            content={
+                "success": False,
+                "error": "Model download timeout (10 minutes exceeded)",
+                "model_name": model_name
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error pulling model {model_name}: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "model_name": model_name
+            }
+        )
+
 @app.get("/models/config/status")
 async def get_config_status():
     """获取配置文件状态"""
