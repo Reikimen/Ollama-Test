@@ -1,4 +1,5 @@
-version: '3.8'
+version: '3.3' # for Jeston nano
+# version: '3.8' # for mac or virtual machine
 
 services:
   # 1. Ollama服务 - 提供LLM能力
