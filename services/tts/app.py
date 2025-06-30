@@ -3,15 +3,17 @@ import logging
 import time
 import asyncio
 import subprocess
+import io
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
-import edge_tts  # Using Microsoft Edge TTS as the TTS engine
+import edge_tts
 import wave
-import io
+import tempfile
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(
@@ -22,14 +24,14 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
-TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")  # English female voice
-OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")  # Output format
+TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")
+OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")
 
 # Create audio directory
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 # Create FastAPI application
-app = FastAPI(title="Text-to-Speech Service with PCM Support")
+app = FastAPI(title="Text-to-Speech Service with ESP32 Optimization")
 
 # Configure CORS
 app.add_middleware(
@@ -43,69 +45,193 @@ app.add_middleware(
 class TTSRequest(BaseModel):
     text: str
     voice: str = TTS_VOICE
-    format: str = OUTPUT_FORMAT  # Optional, defaults to mp3
+    format: str = OUTPUT_FORMAT  # mp3, pcm, wav
 
 class PCMConfig:
     """PCM audio configuration for ESP32"""
     SAMPLE_RATE = 16000  # 16kHz
     CHANNELS = 1         # Mono
     SAMPLE_WIDTH = 2     # 16-bit
+    CHUNK_SIZE = 4096    # Chunk size for streaming (4KB)
 
-def mp3_to_pcm(mp3_file_path: str, pcm_file_path: str) -> bool:
+def mp3_to_pcm_stream(mp3_data: bytes) -> bytes:
     """
-    Convert MP3 file to PCM using ffmpeg
-    Returns True if successful, False otherwise
+    Convert MP3 data to PCM using ffmpeg
+    Returns PCM data as bytes
     """
     try:
         # Use ffmpeg to convert MP3 to raw PCM
-        # -ar: sample rate, -ac: channels, -f s16le: 16-bit little-endian PCM
         cmd = [
             'ffmpeg',
-            '-i', mp3_file_path,
+            '-i', 'pipe:0',  # Read from stdin
             '-ar', str(PCMConfig.SAMPLE_RATE),
             '-ac', str(PCMConfig.CHANNELS),
-            '-f', 's16le',
-            '-y',  # Overwrite output file
-            pcm_file_path
+            '-f', 's16le',  # 16-bit little-endian PCM
+            '-loglevel', 'error',
+            'pipe:1'  # Write to stdout
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         
-        if result.returncode == 0:
-            logger.info(f"Successfully converted MP3 to PCM: {pcm_file_path}")
-            return True
-        else:
-            logger.error(f"FFmpeg error: {result.stderr}")
-            return False
+        pcm_data, error = process.communicate(input=mp3_data)
+        
+        if process.returncode != 0:
+            logger.error(f"FFmpeg error: {error.decode()}")
+            raise Exception("PCM conversion failed")
             
+        return pcm_data
+        
     except Exception as e:
         logger.error(f"Error converting MP3 to PCM: {str(e)}")
-        return False
+        raise
 
-def create_wav_header(pcm_data: bytes) -> bytes:
+async def generate_pcm_chunks(text: str, voice: str):
     """
-    Create WAV header for PCM data
+    Generator that yields PCM chunks for streaming
     """
-    wav_buffer = io.BytesIO()
-    with wave.open(wav_buffer, 'wb') as wav_file:
-        wav_file.setnchannels(PCMConfig.CHANNELS)
-        wav_file.setsampwidth(PCMConfig.SAMPLE_WIDTH)
-        wav_file.setframerate(PCMConfig.SAMPLE_RATE)
-        wav_file.writeframes(pcm_data)
-    
-    return wav_buffer.getvalue()
+    try:
+        # Create TTS communication object
+        communicate = edge_tts.Communicate(text, voice)
+        
+        # Generate MP3 in memory
+        mp3_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                mp3_data += chunk["data"]
+        
+        # Convert to PCM
+        pcm_data = mp3_to_pcm_stream(mp3_data)
+        
+        # Yield chunks
+        for i in range(0, len(pcm_data), PCMConfig.CHUNK_SIZE):
+            yield pcm_data[i:i + PCMConfig.CHUNK_SIZE]
+            
+    except Exception as e:
+        logger.error(f"Error generating PCM chunks: {str(e)}")
+        raise
 
 @app.get("/")
 async def root():
     return {
-        "message": "Text-to-Speech Service with PCM Support is running",
-        "features": ["MP3 generation", "PCM conversion", "Direct PCM streaming"],
+        "message": "Text-to-Speech Service with ESP32 Optimization",
+        "endpoints": {
+            "esp32": {
+                "/esp32/pcm": "Direct PCM streaming for ESP32",
+                "/esp32/pcm/chunked": "Chunked PCM streaming",
+                "/esp32/info": "Get PCM format information"
+            },
+            "web": {
+                "/synthesize": "Generate and store audio (for web)",
+                "/audio/{filename}": "Get stored audio file"
+            }
+        },
         "pcm_config": {
             "sample_rate": PCMConfig.SAMPLE_RATE,
             "channels": PCMConfig.CHANNELS,
-            "sample_width": PCMConfig.SAMPLE_WIDTH * 8  # bits
+            "bits_per_sample": PCMConfig.SAMPLE_WIDTH * 8,
+            "chunk_size": PCMConfig.CHUNK_SIZE
         }
     }
+
+# ==================== ESP32 Optimized Endpoints ====================
+
+@app.post("/esp32/pcm")
+async def esp32_pcm_stream(request: Request):
+    """
+    ESP32-optimized endpoint: Stream PCM data directly
+    Accepts JSON body with text and optional voice
+    Returns raw PCM stream without storing files
+    """
+    try:
+        body = await request.json()
+        text = body.get("text", "")
+        voice = body.get("voice", TTS_VOICE)
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        logger.info(f"ESP32 PCM request: '{text[:50]}...'")
+        
+        # Generate PCM data
+        pcm_chunks = []
+        async for chunk in generate_pcm_chunks(text, voice):
+            pcm_chunks.append(chunk)
+        
+        pcm_data = b"".join(pcm_chunks)
+        
+        # Return raw PCM data with appropriate headers
+        return Response(
+            content=pcm_data,
+            media_type="audio/pcm",
+            headers={
+                "Content-Type": "audio/pcm",
+                "X-Sample-Rate": str(PCMConfig.SAMPLE_RATE),
+                "X-Channels": str(PCMConfig.CHANNELS),
+                "X-Bits-Per-Sample": str(PCMConfig.SAMPLE_WIDTH * 8),
+                "Content-Length": str(len(pcm_data))
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"ESP32 PCM error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/esp32/pcm/chunked")
+async def esp32_pcm_chunked_stream(request: Request):
+    """
+    ESP32-optimized endpoint: Chunked PCM streaming
+    Allows ESP32 to start playing before full download
+    """
+    try:
+        body = await request.json()
+        text = body.get("text", "")
+        voice = body.get("voice", TTS_VOICE)
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        logger.info(f"ESP32 chunked PCM request: '{text[:50]}...'")
+        
+        # Return streaming response
+        return StreamingResponse(
+            generate_pcm_chunks(text, voice),
+            media_type="audio/pcm",
+            headers={
+                "Content-Type": "audio/pcm",
+                "X-Sample-Rate": str(PCMConfig.SAMPLE_RATE),
+                "X-Channels": str(PCMConfig.CHANNELS),
+                "X-Bits-Per-Sample": str(PCMConfig.SAMPLE_WIDTH * 8),
+                "Transfer-Encoding": "chunked"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"ESP32 chunked PCM error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/esp32/info")
+async def esp32_audio_info():
+    """
+    Get PCM format information for ESP32 configuration
+    """
+    return {
+        "pcm_format": {
+            "sample_rate": PCMConfig.SAMPLE_RATE,
+            "channels": PCMConfig.CHANNELS,
+            "bits_per_sample": PCMConfig.SAMPLE_WIDTH * 8,
+            "byte_order": "little-endian",
+            "format": "signed 16-bit PCM"
+        },
+        "recommended_buffer_size": PCMConfig.CHUNK_SIZE,
+        "estimated_bitrate": PCMConfig.SAMPLE_RATE * PCMConfig.CHANNELS * PCMConfig.SAMPLE_WIDTH * 8
+    }
+
+# ==================== Original Web Endpoints (保持兼容性) ====================
 
 @app.get("/voices")
 async def list_voices():
@@ -122,21 +248,19 @@ async def list_voices():
 
 @app.post("/synthesize")
 async def synthesize_speech(request: TTSRequest):
-    """Synthesize speech and return audio file path"""
+    """
+    Original endpoint for web interface
+    Generates and stores audio files
+    """
     try:
-        # Generate unique filename
         timestamp = int(time.time())
         base_filename = f"tts_{timestamp}"
         
-        # Default to mp3 if format not specified
-        output_format = request.format.lower()
-        
-        if output_format == "pcm":
-            # For PCM, generate MP3 first then convert
+        if request.format.lower() == "pcm":
+            # Generate MP3 first
             mp3_filename = f"{base_filename}_temp.mp3"
             mp3_path = os.path.join(AUDIO_DIR, mp3_filename)
             
-            # Create TTS communication object
             communicate = edge_tts.Communicate(request.text, request.voice)
             await communicate.save(mp3_path)
             
@@ -144,38 +268,36 @@ async def synthesize_speech(request: TTSRequest):
             pcm_filename = f"{base_filename}.pcm"
             pcm_path = os.path.join(AUDIO_DIR, pcm_filename)
             
-            if mp3_to_pcm(mp3_path, pcm_path):
-                # Delete temporary MP3 file
-                os.remove(mp3_path)
-                
-                # Return format compatible with original API
-                return {
-                    "audio_path": f"/app/audio/{pcm_filename}",  # Path expected by frontend
-                    "filename": pcm_filename,
-                    "format": "pcm",
-                    "voice": request.voice,
-                    "sample_rate": PCMConfig.SAMPLE_RATE,
-                    "channels": PCMConfig.CHANNELS,
-                    "sample_width": PCMConfig.SAMPLE_WIDTH * 8
-                }
-            else:
-                os.remove(mp3_path)
-                raise HTTPException(status_code=500, detail="Failed to convert to PCM")
+            # Read MP3 and convert
+            with open(mp3_path, 'rb') as f:
+                mp3_data = f.read()
+            
+            pcm_data = mp3_to_pcm_stream(mp3_data)
+            
+            with open(pcm_path, 'wb') as f:
+                f.write(pcm_data)
+            
+            os.remove(mp3_path)
+            
+            return {
+                "audio_path": f"/app/audio/{pcm_filename}",
+                "filename": pcm_filename,
+                "format": "pcm",
+                "voice": request.voice,
+                "sample_rate": PCMConfig.SAMPLE_RATE,
+                "channels": PCMConfig.CHANNELS,
+                "sample_width": PCMConfig.SAMPLE_WIDTH * 8
+            }
         else:
-            # Default MP3 format (original behavior)
+            # Default MP3 format
             mp3_filename = f"{base_filename}.mp3"
             mp3_path = os.path.join(AUDIO_DIR, mp3_filename)
             
-            # Create TTS communication object
             communicate = edge_tts.Communicate(request.text, request.voice)
-            
-            # Save to MP3 file
             await communicate.save(mp3_path)
-            logger.info(f"Generated MP3: {mp3_path}")
             
-            # Return format compatible with original API
             return {
-                "audio_path": f"/app/audio/{mp3_filename}",  # Path expected by frontend
+                "audio_path": f"/app/audio/{mp3_filename}",
                 "filename": mp3_filename,
                 "format": "mp3",
                 "voice": request.voice
@@ -187,13 +309,12 @@ async def synthesize_speech(request: TTSRequest):
 
 @app.get("/audio/{filename}")
 async def get_audio(filename: str):
-    """Get audio file - compatible with original API"""
+    """Get audio file"""
     file_path = os.path.join(AUDIO_DIR, filename)
     
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
     
-    # Determine media type based on file extension
     if filename.endswith('.mp3'):
         media_type = "audio/mpeg"
     elif filename.endswith('.pcm'):
@@ -205,37 +326,30 @@ async def get_audio(filename: str):
     
     return FileResponse(file_path, media_type=media_type, filename=filename)
 
+@app.get("/download/{filename}")
+async def download_audio(filename: str):
+    """Download audio file (alternative endpoint)"""
+    return await get_audio(filename)
+
+# ==================== Legacy Endpoints (保持向后兼容) ====================
+
 @app.get("/download/pcm")
 async def download_pcm_direct(text: str = Query(..., description="Text to synthesize")):
     """
-    Direct PCM download endpoint for ESP32
-    Synthesizes text and returns raw PCM data
+    Legacy endpoint for URL-based PCM generation
+    Kept for backward compatibility
     """
     try:
-        # Generate temporary MP3
-        timestamp = int(time.time())
-        mp3_path = os.path.join(AUDIO_DIR, f"temp_{timestamp}.mp3")
-        pcm_path = os.path.join(AUDIO_DIR, f"temp_{timestamp}.pcm")
+        logger.info(f"Legacy PCM request: '{text[:50]}...'")
         
-        # Create TTS
-        communicate = edge_tts.Communicate(text, TTS_VOICE)
-        await communicate.save(mp3_path)
+        pcm_chunks = []
+        async for chunk in generate_pcm_chunks(text, TTS_VOICE):
+            pcm_chunks.append(chunk)
         
-        # Convert to PCM
-        if not mp3_to_pcm(mp3_path, pcm_path):
-            raise HTTPException(status_code=500, detail="PCM conversion failed")
+        pcm_data = b"".join(pcm_chunks)
         
-        # Read PCM data
-        with open(pcm_path, 'rb') as f:
-            pcm_data = f.read()
-        
-        # Clean up temporary files
-        os.remove(mp3_path)
-        os.remove(pcm_path)
-        
-        # Return PCM data as streaming response
-        return StreamingResponse(
-            io.BytesIO(pcm_data),
+        return Response(
+            content=pcm_data,
             media_type="audio/pcm",
             headers={
                 "Content-Disposition": "attachment; filename=audio.pcm",
@@ -246,49 +360,7 @@ async def download_pcm_direct(text: str = Query(..., description="Text to synthe
         )
         
     except Exception as e:
-        logger.error(f"Error in direct PCM download: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/download/wav")
-async def download_wav_direct(text: str = Query(..., description="Text to synthesize")):
-    """
-    Direct WAV download endpoint (PCM with WAV header)
-    """
-    try:
-        # Generate temporary MP3
-        timestamp = int(time.time())
-        mp3_path = os.path.join(AUDIO_DIR, f"temp_{timestamp}.mp3")
-        pcm_path = os.path.join(AUDIO_DIR, f"temp_{timestamp}.pcm")
-        
-        # Create TTS
-        communicate = edge_tts.Communicate(text, TTS_VOICE)
-        await communicate.save(mp3_path)
-        
-        # Convert to PCM
-        if not mp3_to_pcm(mp3_path, pcm_path):
-            raise HTTPException(status_code=500, detail="PCM conversion failed")
-        
-        # Read PCM data and create WAV
-        with open(pcm_path, 'rb') as f:
-            pcm_data = f.read()
-        
-        wav_data = create_wav_header(pcm_data)
-        
-        # Clean up temporary files
-        os.remove(mp3_path)
-        os.remove(pcm_path)
-        
-        # Return WAV data
-        return StreamingResponse(
-            io.BytesIO(wav_data),
-            media_type="audio/wav",
-            headers={
-                "Content-Disposition": "attachment; filename=audio.wav"
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in WAV download: {str(e)}")
+        logger.error(f"Error in legacy PCM download: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/audio/{filename}")
