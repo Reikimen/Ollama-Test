@@ -2,18 +2,17 @@ import os
 import logging
 import time
 import asyncio
-import subprocess
-import io
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
+from typing import Dict, List, Optional
+from collections import deque
+from fastapi import FastAPI, HTTPException, Header, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel
 import edge_tts
-import wave
-import tempfile
-from typing import Optional
+from pydub import AudioSegment
+import numpy as np
 
 # Configure logging
 logging.basicConfig(
@@ -31,7 +30,7 @@ OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 # Create FastAPI application
-app = FastAPI(title="Text-to-Speech Service with ESP32 Optimization")
+app = FastAPI(title="Text-to-Speech Service with ESP32 Support")
 
 # Configure CORS
 app.add_middleware(
@@ -45,193 +44,72 @@ app.add_middleware(
 class TTSRequest(BaseModel):
     text: str
     voice: str = TTS_VOICE
-    format: str = OUTPUT_FORMAT  # mp3, pcm, wav
+    format: str = OUTPUT_FORMAT
 
-class PCMConfig:
-    """PCM audio configuration for ESP32"""
-    SAMPLE_RATE = 16000  # 16kHz
-    CHANNELS = 1         # Mono
-    SAMPLE_WIDTH = 2     # 16-bit
-    CHUNK_SIZE = 4096    # Chunk size for streaming (4KB)
+# ESP32设备管理
+class ESP32DeviceManager:
+    def __init__(self):
+        self.devices: Dict[str, dict] = {}
+        self.pending_tasks: Dict[str, deque] = {}
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.polling_events: Dict[str, asyncio.Event] = {}
+        
+    def register_device(self, device_id: str):
+        """注册ESP32设备"""
+        if device_id not in self.devices:
+            self.devices[device_id] = {
+                "last_seen": time.time(),
+                "status": "online"
+            }
+            self.pending_tasks[device_id] = deque(maxlen=10)
+            self.polling_events[device_id] = asyncio.Event()
+            logger.info(f"Registered ESP32 device: {device_id}")
+    
+    def add_task(self, device_id: str, task: dict):
+        """添加TTS任务到设备队列"""
+        if device_id not in self.devices:
+            self.register_device(device_id)
+        
+        self.pending_tasks[device_id].append(task)
+        
+        # 触发轮询事件
+        if device_id in self.polling_events:
+            self.polling_events[device_id].set()
+        
+        logger.info(f"Added TTS task for device {device_id}: {task['text'][:50]}...")
+        
+    def get_next_task(self, device_id: str) -> Optional[dict]:
+        """获取设备的下一个任务"""
+        if device_id in self.pending_tasks and self.pending_tasks[device_id]:
+            return self.pending_tasks[device_id].popleft()
+        return None
+    
+    async def wait_for_task(self, device_id: str, timeout: float = 25.0) -> Optional[dict]:
+        """等待新任务（用于长轮询）"""
+        if device_id not in self.polling_events:
+            self.register_device(device_id)
+        
+        # 首先检查是否已有待处理任务
+        task = self.get_next_task(device_id)
+        if task:
+            return task
+        
+        # 等待新任务
+        try:
+            await asyncio.wait_for(
+                self.polling_events[device_id].wait(),
+                timeout=timeout
+            )
+            self.polling_events[device_id].clear()
+            return self.get_next_task(device_id)
+        except asyncio.TimeoutError:
+            return None
 
-def mp3_to_pcm_stream(mp3_data: bytes) -> bytes:
-    """
-    Convert MP3 data to PCM using ffmpeg
-    Returns PCM data as bytes
-    """
-    try:
-        # Use ffmpeg to convert MP3 to raw PCM
-        cmd = [
-            'ffmpeg',
-            '-i', 'pipe:0',  # Read from stdin
-            '-ar', str(PCMConfig.SAMPLE_RATE),
-            '-ac', str(PCMConfig.CHANNELS),
-            '-f', 's16le',  # 16-bit little-endian PCM
-            '-loglevel', 'error',
-            'pipe:1'  # Write to stdout
-        ]
-        
-        process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        pcm_data, error = process.communicate(input=mp3_data)
-        
-        if process.returncode != 0:
-            logger.error(f"FFmpeg error: {error.decode()}")
-            raise Exception("PCM conversion failed")
-            
-        return pcm_data
-        
-    except Exception as e:
-        logger.error(f"Error converting MP3 to PCM: {str(e)}")
-        raise
-
-async def generate_pcm_chunks(text: str, voice: str):
-    """
-    Generator that yields PCM chunks for streaming
-    """
-    try:
-        # Create TTS communication object
-        communicate = edge_tts.Communicate(text, voice)
-        
-        # Generate MP3 in memory
-        mp3_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                mp3_data += chunk["data"]
-        
-        # Convert to PCM
-        pcm_data = mp3_to_pcm_stream(mp3_data)
-        
-        # Yield chunks
-        for i in range(0, len(pcm_data), PCMConfig.CHUNK_SIZE):
-            yield pcm_data[i:i + PCMConfig.CHUNK_SIZE]
-            
-    except Exception as e:
-        logger.error(f"Error generating PCM chunks: {str(e)}")
-        raise
+device_manager = ESP32DeviceManager()
 
 @app.get("/")
 async def root():
-    return {
-        "message": "Text-to-Speech Service with ESP32 Optimization",
-        "endpoints": {
-            "esp32": {
-                "/esp32/pcm": "Direct PCM streaming for ESP32",
-                "/esp32/pcm/chunked": "Chunked PCM streaming",
-                "/esp32/info": "Get PCM format information"
-            },
-            "web": {
-                "/synthesize": "Generate and store audio (for web)",
-                "/audio/{filename}": "Get stored audio file"
-            }
-        },
-        "pcm_config": {
-            "sample_rate": PCMConfig.SAMPLE_RATE,
-            "channels": PCMConfig.CHANNELS,
-            "bits_per_sample": PCMConfig.SAMPLE_WIDTH * 8,
-            "chunk_size": PCMConfig.CHUNK_SIZE
-        }
-    }
-
-# ==================== ESP32 Optimized Endpoints ====================
-
-@app.post("/esp32/pcm")
-async def esp32_pcm_stream(request: Request):
-    """
-    ESP32-optimized endpoint: Stream PCM data directly
-    Accepts JSON body with text and optional voice
-    Returns raw PCM stream without storing files
-    """
-    try:
-        body = await request.json()
-        text = body.get("text", "")
-        voice = body.get("voice", TTS_VOICE)
-        
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        logger.info(f"ESP32 PCM request: '{text[:50]}...'")
-        
-        # Generate PCM data
-        pcm_chunks = []
-        async for chunk in generate_pcm_chunks(text, voice):
-            pcm_chunks.append(chunk)
-        
-        pcm_data = b"".join(pcm_chunks)
-        
-        # Return raw PCM data with appropriate headers
-        return Response(
-            content=pcm_data,
-            media_type="audio/pcm",
-            headers={
-                "Content-Type": "audio/pcm",
-                "X-Sample-Rate": str(PCMConfig.SAMPLE_RATE),
-                "X-Channels": str(PCMConfig.CHANNELS),
-                "X-Bits-Per-Sample": str(PCMConfig.SAMPLE_WIDTH * 8),
-                "Content-Length": str(len(pcm_data))
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"ESP32 PCM error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/esp32/pcm/chunked")
-async def esp32_pcm_chunked_stream(request: Request):
-    """
-    ESP32-optimized endpoint: Chunked PCM streaming
-    Allows ESP32 to start playing before full download
-    """
-    try:
-        body = await request.json()
-        text = body.get("text", "")
-        voice = body.get("voice", TTS_VOICE)
-        
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        logger.info(f"ESP32 chunked PCM request: '{text[:50]}...'")
-        
-        # Return streaming response
-        return StreamingResponse(
-            generate_pcm_chunks(text, voice),
-            media_type="audio/pcm",
-            headers={
-                "Content-Type": "audio/pcm",
-                "X-Sample-Rate": str(PCMConfig.SAMPLE_RATE),
-                "X-Channels": str(PCMConfig.CHANNELS),
-                "X-Bits-Per-Sample": str(PCMConfig.SAMPLE_WIDTH * 8),
-                "Transfer-Encoding": "chunked"
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"ESP32 chunked PCM error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/esp32/info")
-async def esp32_audio_info():
-    """
-    Get PCM format information for ESP32 configuration
-    """
-    return {
-        "pcm_format": {
-            "sample_rate": PCMConfig.SAMPLE_RATE,
-            "channels": PCMConfig.CHANNELS,
-            "bits_per_sample": PCMConfig.SAMPLE_WIDTH * 8,
-            "byte_order": "little-endian",
-            "format": "signed 16-bit PCM"
-        },
-        "recommended_buffer_size": PCMConfig.CHUNK_SIZE,
-        "estimated_bitrate": PCMConfig.SAMPLE_RATE * PCMConfig.CHANNELS * PCMConfig.SAMPLE_WIDTH * 8
-    }
-
-# ==================== Original Web Endpoints (保持兼容性) ====================
+    return {"message": "TTS Service with ESP32 Support is running"}
 
 @app.get("/voices")
 async def list_voices():
@@ -248,157 +126,247 @@ async def list_voices():
 
 @app.post("/synthesize")
 async def synthesize_speech(request: TTSRequest):
-    """
-    Original endpoint for web interface
-    Generates and stores audio files
-    """
+    """Synthesize speech and return audio file path"""
     try:
         timestamp = int(time.time())
-        base_filename = f"tts_{timestamp}"
+        filename = f"tts_{timestamp}.{request.format}"
+        file_path = os.path.join(AUDIO_DIR, filename)
         
-        if request.format.lower() == "pcm":
-            # Generate MP3 first
-            mp3_filename = f"{base_filename}_temp.mp3"
-            mp3_path = os.path.join(AUDIO_DIR, mp3_filename)
-            
-            communicate = edge_tts.Communicate(request.text, request.voice)
-            await communicate.save(mp3_path)
-            
-            # Convert to PCM
-            pcm_filename = f"{base_filename}.pcm"
-            pcm_path = os.path.join(AUDIO_DIR, pcm_filename)
-            
-            # Read MP3 and convert
-            with open(mp3_path, 'rb') as f:
-                mp3_data = f.read()
-            
-            pcm_data = mp3_to_pcm_stream(mp3_data)
-            
-            with open(pcm_path, 'wb') as f:
-                f.write(pcm_data)
-            
-            os.remove(mp3_path)
-            
-            return {
-                "audio_path": f"/app/audio/{pcm_filename}",
-                "filename": pcm_filename,
-                "format": "pcm",
-                "voice": request.voice,
-                "sample_rate": PCMConfig.SAMPLE_RATE,
-                "channels": PCMConfig.CHANNELS,
-                "sample_width": PCMConfig.SAMPLE_WIDTH * 8
-            }
-        else:
-            # Default MP3 format
-            mp3_filename = f"{base_filename}.mp3"
-            mp3_path = os.path.join(AUDIO_DIR, mp3_filename)
-            
-            communicate = edge_tts.Communicate(request.text, request.voice)
-            await communicate.save(mp3_path)
-            
-            return {
-                "audio_path": f"/app/audio/{mp3_filename}",
-                "filename": mp3_filename,
-                "format": "mp3",
-                "voice": request.voice
-            }
+        communicate = edge_tts.Communicate(request.text, request.voice)
+        await communicate.save(file_path)
+        
+        logger.info(f"Speech synthesized: {file_path}")
+        
+        return {
+            "audio_path": file_path,
+            "format": request.format,
+            "voice": request.voice
+        }
+    
+    except Exception as e:
+        logger.error(f"Speech synthesis error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Speech synthesis error: {str(e)}"}
+        )
+
+@app.post("/esp32/synthesize")
+async def esp32_synthesize(request: TTSRequest, device_id: str = Header(None, alias="X-Device-ID")):
+    """合成语音并通知ESP32设备"""
+    try:
+        if not device_id:
+            device_id = "ESP32_DEFAULT"
+        
+        # 生成音频
+        timestamp = int(time.time())
+        audio_id = f"audio_{timestamp}_{hash(request.text) % 10000}"
+        
+        # 合成语音
+        temp_file = f"/tmp/tts_{timestamp}.mp3"
+        communicate = edge_tts.Communicate(request.text, request.voice)
+        await communicate.save(temp_file)
+        
+        # 转换为PCM
+        audio = AudioSegment.from_mp3(temp_file)
+        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        
+        # 保存PCM数据
+        pcm_file = os.path.join(AUDIO_DIR, f"{audio_id}.pcm")
+        with open(pcm_file, 'wb') as f:
+            f.write(audio.raw_data)
+        
+        os.remove(temp_file)
+        
+        # 创建任务信息
+        task = {
+            "audio_id": audio_id,
+            "text": request.text,
+            "voice": request.voice,
+            "duration": len(audio) / 1000.0,
+            "size": len(audio.raw_data),
+            "timestamp": time.time()
+        }
+        
+        # 添加到设备队列
+        device_manager.add_task(device_id, task)
+        
+        logger.info(f"TTS task created for device {device_id}: {audio_id}")
+        
+        return {
+            "status": "success",
+            "audio_id": audio_id,
+            "message": "Audio synthesized and queued for device"
+        }
         
     except Exception as e:
-        logger.error(f"Error synthesizing speech: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"ESP32 synthesis error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Synthesis error: {str(e)}"}
+        )
 
-@app.get("/audio/{filename}")
-async def get_audio(filename: str):
-    """Get audio file"""
-    file_path = os.path.join(AUDIO_DIR, filename)
-    
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Audio file not found")
-    
-    if filename.endswith('.mp3'):
-        media_type = "audio/mpeg"
-    elif filename.endswith('.pcm'):
-        media_type = "audio/pcm"
-    elif filename.endswith('.wav'):
-        media_type = "audio/wav"
-    else:
-        media_type = "application/octet-stream"
-    
-    return FileResponse(file_path, media_type=media_type, filename=filename)
-
-@app.get("/download/{filename}")
-async def download_audio(filename: str):
-    """Download audio file (alternative endpoint)"""
-    return await get_audio(filename)
-
-# ==================== Legacy Endpoints (保持向后兼容) ====================
-
-@app.get("/download/pcm")
-async def download_pcm_direct(text: str = Query(..., description="Text to synthesize")):
-    """
-    Legacy endpoint for URL-based PCM generation
-    Kept for backward compatibility
-    """
+@app.get("/esp32/poll")
+async def esp32_poll(device_id: str = Header(None, alias="X-Device-ID")):
+    """ESP32长轮询端点 - 等待新的TTS任务"""
     try:
-        logger.info(f"Legacy PCM request: '{text[:50]}...'")
+        if not device_id:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Device ID required"}
+            )
         
-        pcm_chunks = []
-        async for chunk in generate_pcm_chunks(text, TTS_VOICE):
-            pcm_chunks.append(chunk)
+        logger.debug(f"Device {device_id} polling for tasks")
         
-        pcm_data = b"".join(pcm_chunks)
+        # 等待任务（最长25秒）
+        task = await device_manager.wait_for_task(device_id, timeout=25.0)
+        
+        if task:
+            logger.info(f"Returning task to device {device_id}: {task['audio_id']}")
+            return {
+                "has_audio": True,
+                "audio_id": task["audio_id"],
+                "text": task["text"][:100],  # 前100个字符
+                "voice": task["voice"],
+                "duration": task["duration"],
+                "size": task["size"],
+                "timestamp": task["timestamp"]
+            }
+        else:
+            # 没有任务，返回204 No Content
+            return Response(status_code=204)
+            
+    except Exception as e:
+        logger.error(f"Polling error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Polling error: {str(e)}"}
+        )
+
+@app.post("/esp32/pcm")
+async def esp32_pcm_direct(request: TTSRequest):
+    """直接生成并返回PCM数据（向后兼容）"""
+    try:
+        timestamp = int(time.time())
+        temp_file = f"/tmp/tts_{timestamp}.mp3"
+        
+        communicate = edge_tts.Communicate(request.text, request.voice)
+        await communicate.save(temp_file)
+        
+        # 转换为PCM
+        audio = AudioSegment.from_mp3(temp_file)
+        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        
+        pcm_data = audio.raw_data
+        os.remove(temp_file)
+        
+        logger.info(f"Direct PCM stream: {len(pcm_data)} bytes")
         
         return Response(
             content=pcm_data,
             media_type="audio/pcm",
             headers={
-                "Content-Disposition": "attachment; filename=audio.pcm",
-                "X-Sample-Rate": str(PCMConfig.SAMPLE_RATE),
-                "X-Channels": str(PCMConfig.CHANNELS),
-                "X-Sample-Width": str(PCMConfig.SAMPLE_WIDTH * 8)
+                "Content-Length": str(len(pcm_data)),
+                "X-Sample-Rate": "16000",
+                "X-Channels": "1",
+                "X-Bits-Per-Sample": "16"
             }
         )
         
     except Exception as e:
-        logger.error(f"Error in legacy PCM download: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"PCM generation error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"PCM generation error: {str(e)}"}
+        )
 
-@app.delete("/audio/{filename}")
-async def delete_audio(filename: str):
-    """Delete audio file"""
+@app.get("/esp32/audio/{audio_id}")
+async def get_esp32_audio(audio_id: str):
+    """获取指定ID的PCM音频数据"""
+    try:
+        pcm_file = os.path.join(AUDIO_DIR, f"{audio_id}.pcm")
+        
+        if not os.path.exists(pcm_file):
+            raise HTTPException(status_code=404, detail="Audio not found")
+        
+        with open(pcm_file, 'rb') as f:
+            pcm_data = f.read()
+        
+        # 可选：删除已发送的文件
+        # os.remove(pcm_file)
+        
+        return Response(
+            content=pcm_data,
+            media_type="audio/pcm",
+            headers={
+                "Content-Length": str(len(pcm_data)),
+                "X-Sample-Rate": "16000",
+                "X-Channels": "1",
+                "X-Bits-Per-Sample": "16",
+                "X-Audio-ID": audio_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving audio {audio_id}: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error retrieving audio: {str(e)}"}
+        )
+
+@app.websocket("/ws/{device_id}")
+async def websocket_endpoint(websocket: WebSocket, device_id: str):
+    """WebSocket端点（可选功能）"""
+    await websocket.accept()
+    device_manager.active_connections[device_id] = websocket
+    logger.info(f"WebSocket connected: {device_id}")
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            
+            if data == "ping":
+                await websocket.send_text("pong")
+            
+    except WebSocketDisconnect:
+        if device_id in device_manager.active_connections:
+            del device_manager.active_connections[device_id]
+        logger.info(f"WebSocket disconnected: {device_id}")
+
+@app.get("/audio/{filename}")
+async def get_audio(filename: str):
+    """获取音频文件（向后兼容）"""
     file_path = os.path.join(AUDIO_DIR, filename)
     
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="Audio file does not exist")
     
-    try:
-        os.remove(file_path)
-        return {"message": f"File {filename} deleted successfully"}
-    except Exception as e:
-        logger.error(f"Error deleting file: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return FileResponse(file_path)
 
-@app.get("/list")
-async def list_audio_files():
-    """List all audio files in the directory"""
-    try:
-        files = []
-        for filename in os.listdir(AUDIO_DIR):
-            file_path = os.path.join(AUDIO_DIR, filename)
-            if os.path.isfile(file_path):
-                stat = os.stat(file_path)
-                files.append({
-                    "filename": filename,
-                    "size": stat.st_size,
-                    "created": stat.st_ctime,
-                    "format": filename.split('.')[-1]
-                })
+# 清理旧文件的后台任务
+async def cleanup_old_files():
+    """定期清理旧的音频文件"""
+    while True:
+        try:
+            current_time = time.time()
+            for filename in os.listdir(AUDIO_DIR):
+                file_path = os.path.join(AUDIO_DIR, filename)
+                if os.path.isfile(file_path):
+                    file_age = current_time - os.path.getmtime(file_path)
+                    if file_age > 3600:  # 1小时
+                        os.remove(file_path)
+                        logger.debug(f"Removed old file: {filename}")
+        except Exception as e:
+            logger.error(f"Cleanup error: {str(e)}")
         
-        return {"files": files, "count": len(files)}
-        
-    except Exception as e:
-        logger.error(f"Error listing files: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        await asyncio.sleep(600)  # 每10分钟运行一次
+
+@app.on_event("startup")
+async def startup_event():
+    """启动时运行的任务"""
+    asyncio.create_task(cleanup_old_files())
+    logger.info("TTS Service started with ESP32 support")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run("app:app", host="0.0.0.0", port=8001, reload=False)
