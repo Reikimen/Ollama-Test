@@ -30,19 +30,19 @@ class APIMode(Enum):
     LOCAL_OLLAMA = "local"
     REMOTE_API = "api"
 
-# Enhanced environment configuration with API mode support
-API_MODE = "api"  # "local" or "api"
+# Default configuration (will be overridden by config file if exists)
+DEFAULT_API_MODE = "api"  # Default mode if no config file exists
+DEFAULT_LOCAL_MODEL = "llama3.2:3b"
+DEFAULT_REMOTE_MODEL = "llama3.2:3b"
 
 # Local Ollama configuration
 OLLAMA_HOST = "ollama"
 OLLAMA_PORT = "11434"
-OLLAMA_MODEL = "llama3"  # 默认模型，可被动态切换
 OLLAMA_SCHEME = "http"
 
 # Remote API configuration (protected by .env)
 REMOTE_API_URL = "https://chat.cetools.org/api/chat/completions"
 REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "")  # Must be set in .env
-REMOTE_API_MODEL = "llama3.2:3b"
 
 # Other services configuration
 STT_HOST = "stt-service"
@@ -52,6 +52,49 @@ TTS_PORT = "8001"
 TTS_VOICE = "en-US-AriaNeural"
 IOT_HOST = "iot-control"
 IOT_PORT = "8002"
+
+# Early configuration loading function
+def load_early_config():
+    """Load configuration from file early in the startup process"""
+    config_file = "/app/config/model_preferences.json"
+    
+    # Default values
+    api_mode = DEFAULT_API_MODE
+    default_model = DEFAULT_REMOTE_MODEL if DEFAULT_API_MODE == "api" else DEFAULT_LOCAL_MODEL
+    
+    try:
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                preferences = json.load(f)
+            
+            # Get mode from config file
+            saved_mode = preferences.get("current_mode")
+            if saved_mode and saved_mode in ["local", "api"]:
+                # Check if API key is available for API mode
+                if saved_mode == "api" and not REMOTE_API_KEY:
+                    logger.warning("⚠️ Config requests API mode but REMOTE_API_KEY not set, falling back to default")
+                    api_mode = DEFAULT_API_MODE
+                else:
+                    api_mode = saved_mode
+                    logger.info(f"📂 Loaded API mode from config: {api_mode}")
+                    
+                    # Also load the saved model for this mode
+                    saved_model = preferences.get("current_model")
+                    if saved_model:
+                        default_model = saved_model
+                        logger.info(f"📂 Loaded default model from config: {default_model}")
+        else:
+            logger.info(f"📄 No config file found, using default API mode: {api_mode}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error loading early config: {str(e)}, using defaults")
+    
+    return api_mode, default_model
+
+# Load configuration early
+API_MODE, INITIAL_MODEL = load_early_config()
+OLLAMA_MODEL = INITIAL_MODEL if API_MODE == "local" else DEFAULT_LOCAL_MODEL
+REMOTE_API_MODEL = INITIAL_MODEL if API_MODE == "api" else DEFAULT_REMOTE_MODEL
 
 # Build endpoint based on mode
 if API_MODE == "api":
@@ -69,6 +112,7 @@ logger.info(f"🚀 Starting in {API_MODE} mode with endpoint: {OLLAMA_ENDPOINT}"
 # Enhanced ModelManager with API mode support
 class EnhancedModelManager:
     def __init__(self):
+        # Use the early-loaded configuration
         self.current_mode = APIMode(API_MODE)
         self.current_model = REMOTE_API_MODEL if self.current_mode == APIMode.REMOTE_API else OLLAMA_MODEL
         self.available_models = []
@@ -88,8 +132,30 @@ class EnhancedModelManager:
         self.config_dir = "/app/config"
         self.config_file = os.path.join(self.config_dir, "model_preferences.json")
         
-        # 启动时加载已保存的配置
-        self._load_saved_preferences()
+        # 验证配置文件中的设置是否与当前设置一致
+        self._validate_config_consistency()
+    
+    def _validate_config_consistency(self):
+        """验证配置文件与当前运行状态的一致性"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    preferences = json.load(f)
+                
+                saved_mode = preferences.get("current_mode")
+                saved_model = preferences.get("current_model")
+                
+                # 如果配置文件中的模式与当前模式不一致，更新配置文件
+                if saved_mode != self.current_mode.value:
+                    logger.info(f"🔄 Updating config file mode from {saved_mode} to {self.current_mode.value}")
+                    self._save_preferences_to_file()
+                
+                # 确保模型设置正确
+                if saved_model and saved_model != self.current_model:
+                    logger.info(f"🔄 Model mismatch detected, using: {self.current_model}")
+        
+        except Exception as e:
+            logger.error(f"❌ Error validating config consistency: {str(e)}")
     
     def get_current_mode(self):
         return self.current_mode.value
@@ -162,43 +228,6 @@ class EnhancedModelManager:
         except Exception as e:
             logger.error(f"❌ Failed to save preferences: {str(e)}")
             return False
-    
-    def _load_saved_preferences(self):
-        """从配置文件加载已保存的偏好设置"""
-        try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    preferences = json.load(f)
-                
-                # 恢复模式设置
-                saved_mode = preferences.get("current_mode")
-                if saved_mode and saved_mode in ["local", "api"]:
-                    # Only switch if API key is available for API mode
-                    if saved_mode == "api" and not REMOTE_API_KEY:
-                        logger.warning("⚠️ Cannot restore API mode: REMOTE_API_KEY not set")
-                    else:
-                        self.current_mode = APIMode(saved_mode)
-                        logger.info(f"📂 Restored mode from config: {saved_mode}")
-                
-                # 恢复模型设置（仅在相同模式下）
-                if self.current_mode.value == saved_mode:
-                    saved_model = preferences.get("current_model")
-                    if saved_model:
-                        self.current_model = saved_model
-                        logger.info(f"📂 Restored model from config: {saved_model}")
-                
-                # 恢复模型列表信息
-                saved_models = preferences.get("available_models", [])
-                for model_data in saved_models:
-                    model_name = model_data.get("name")
-                    if model_name:
-                        self.available_models.append(model_name)
-                        self.model_info[model_name] = model_data.get("info", {})
-                
-                logger.info(f"✅ Loaded preferences from {self.config_file}")
-                
-        except Exception as e:
-            logger.error(f"❌ Failed to load saved preferences: {str(e)}")
     
     async def get_available_models(self, force_refresh=False):
         """获取可用的模型列表 - 支持两种模式"""
@@ -280,7 +309,10 @@ class EnhancedModelManager:
             "config_file_path": self.config_file,
             "config_dir": self.config_dir,
             "config_size_bytes": 0,
-            "config_modified": None
+            "config_modified": None,
+            "total_available_models": len(self.available_models),
+            "current_model": self.current_model,
+            "current_mode": self.current_mode.value
         }
         
         if config_exists:
@@ -305,8 +337,8 @@ class EnhancedModelManager:
                 logger.info(f"🗑️ Removed config file: {self.config_file}")
             
             # 重置为默认值
-            self.current_mode = APIMode(API_MODE)
-            self.current_model = REMOTE_API_MODEL if self.current_mode == APIMode.REMOTE_API else OLLAMA_MODEL
+            self.current_mode = APIMode(DEFAULT_API_MODE)
+            self.current_model = DEFAULT_REMOTE_MODEL if self.current_mode == APIMode.REMOTE_API else DEFAULT_LOCAL_MODEL
             self.available_models = []
             self.model_info = {}
             
@@ -698,6 +730,9 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
         logger.error(f"TTS generation error: {str(e)}")
         # TTS 失败不应该中断整个流程
     
+    # 7. Save config after processing (to persist any changes)
+    config_info = model_manager.get_config_status()
+    
     return {
         "input_text": text_input,
         "ai_response": ai_response,
@@ -709,7 +744,11 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
         "location": location,
         "user_context": user_context,
         "model_used": current_model,
-        "model_info": model_manager.get_model_info(current_model)
+        "model_info": model_manager.get_model_info(current_model),
+        "config_file_info": {
+            "config_updated": config_info["config_exists"],
+            "config_file_path": config_info["config_file_path"]
+        }
     }
 
 # API Endpoints
@@ -907,8 +946,10 @@ async def switch_model(request: ModelSwitchRequest):
                     "current_model": request.model_name,
                     "test_result": test_result,
                     "config_file_info": {
-                        "before": config_status_before,
-                        "after": config_status_after
+                        "config_updated": True,
+                        "config_file_path": config_status_after["config_file_path"],
+                        "before_switch": config_status_before,
+                        "after_switch": config_status_after
                     }
                 }
             else:
@@ -1346,6 +1387,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "connection_established",
             "client_id": client_id,
             "current_model": model_manager.get_current_model(),
+            "available_models": model_manager.available_models,
             "mode": model_manager.get_current_mode(),
             "timestamp": time.time(),
             "message": "WebSocket connection established successfully"
@@ -1572,7 +1614,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     models = await model_manager.get_available_models()
                     await websocket.send_json({
                         "type": "models_list",
-                        "models": models,
+                        "available_models": models,
                         "current_model": model_manager.get_current_model(),
                         "timestamp": time.time()
                     })
