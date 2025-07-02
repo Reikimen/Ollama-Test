@@ -808,7 +808,7 @@ async def get_api_mode():
 
 @app.post("/api/mode/switch")
 async def switch_api_mode(request: ModeSwitchRequest):
-    """Switch between local and API mode"""
+    """Switch between local and API mode - requires service restart"""
     try:
         mode = request.mode
         if not mode:
@@ -817,22 +817,66 @@ async def switch_api_mode(request: ModeSwitchRequest):
                 content={"error": "Mode parameter required"}
             )
         
+        # Check if mode is actually changing
+        current_mode = model_manager.get_current_mode()
+        if mode == current_mode:
+            return {
+                "success": False,
+                "mode": current_mode,
+                "message": f"Already in {mode} mode, no restart needed"
+            }
+        
         success = model_manager.switch_mode(mode)
         
         if success:
-            # Refresh model list for new mode
-            await model_manager.get_available_models(force_refresh=True)
+            # Save configuration before restart
+            logger.info(f"🔄 Mode switch successful, preparing to restart service...")
             
-            # Broadcast mode change
-            await broadcast_mode_switch(mode)
-            
-            return {
+            # Give a response before restarting
+            response_data = {
                 "success": True,
                 "mode": mode,
                 "model": model_manager.current_model,
-                "message": f"Switched to {mode} mode",
-                "endpoint": OLLAMA_ENDPOINT if mode == "api" else f"{OLLAMA_SCHEME}://{OLLAMA_HOST}:{OLLAMA_PORT}"
+                "message": f"Switched to {mode} mode. Service will restart in 2 seconds...",
+                "restart_required": True,
+                "endpoint": REMOTE_API_URL if mode == "api" else f"{OLLAMA_SCHEME}://{OLLAMA_HOST}:{OLLAMA_PORT}"
             }
+            
+            # Schedule restart after response is sent
+            async def delayed_restart():
+                await asyncio.sleep(2)  # Give time for response to be sent
+                logger.info("🔄 Restarting service to apply mode change...")
+                
+                # Different restart methods based on environment
+                import os
+                import sys
+                import signal
+                
+                # Method 1: For Docker containers - exit and let Docker restart
+                if os.environ.get('DOCKER_CONTAINER'):
+                    logger.info("🐳 Docker environment detected, exiting for container restart...")
+                    os._exit(0)  # Exit cleanly, Docker will restart
+                
+                # Method 2: For standalone Python - restart the process
+                else:
+                    logger.info("🔄 Standalone environment, restarting Python process...")
+                    try:
+                        # Flush all outputs
+                        sys.stdout.flush()
+                        sys.stderr.flush()
+                        
+                        # Replace current process with new one
+                        os.execv(sys.executable, ['python'] + sys.argv)
+                    except Exception as e:
+                        logger.error(f"Failed to restart: {e}")
+                        # Fallback: just exit
+                        sys.exit(0)
+            
+            # Start restart task in background
+            asyncio.create_task(delayed_restart())
+            
+            return response_data
+            
         else:
             return JSONResponse(
                 status_code=500,
