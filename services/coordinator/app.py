@@ -15,6 +15,8 @@ import uvicorn
 import requests
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
+from dotenv import load_dotenv
+load_dotenv() 
 
 # Configure logging
 logging.basicConfig(
@@ -29,7 +31,7 @@ class APIMode(Enum):
     REMOTE_API = "api"
 
 # Enhanced environment configuration with API mode support
-API_MODE = os.getenv("API_MODE", "local")  # "local" or "api"
+API_MODE = os.getenv("API_MODE", "api")  # "local" or "api"
 
 # Local Ollama configuration
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
