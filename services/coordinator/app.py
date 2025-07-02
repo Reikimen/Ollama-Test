@@ -31,27 +31,27 @@ class APIMode(Enum):
     REMOTE_API = "api"
 
 # Enhanced environment configuration with API mode support
-API_MODE = os.getenv("API_MODE", "api")  # "local" or "api"
+API_MODE = "api"  # "local" or "api"
 
 # Local Ollama configuration
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
-OLLAMA_PORT = os.getenv("OLLAMA_PORT", "11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")  # 默认模型，可被动态切换
-OLLAMA_SCHEME = os.getenv("OLLAMA_SCHEME", "http")
+OLLAMA_HOST = "ollama"
+OLLAMA_PORT = "11434"
+OLLAMA_MODEL = "llama3"  # 默认模型，可被动态切换
+OLLAMA_SCHEME = "http"
 
 # Remote API configuration (protected by .env)
-REMOTE_API_URL = os.getenv("REMOTE_API_URL", "https://chat.cetools.org/api/chat/completions")
+REMOTE_API_URL = "https://chat.cetools.org/api/chat/completions"
 REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "")  # Must be set in .env
-REMOTE_API_MODEL = os.getenv("REMOTE_API_MODEL", "llama3.2:3b")
+REMOTE_API_MODEL = "llama3.2:3b"
 
 # Other services configuration
-STT_HOST = os.getenv("STT_HOST", "stt-service")
-STT_PORT = os.getenv("STT_PORT", "8000")
-TTS_HOST = os.getenv("TTS_HOST", "tts-service")
-TTS_PORT = os.getenv("TTS_PORT", "8001")
-TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")
-IOT_HOST = os.getenv("IOT_HOST", "iot-control")
-IOT_PORT = os.getenv("IOT_PORT", "8002")
+STT_HOST = "stt-service"
+STT_PORT = "8000"
+TTS_HOST = "tts-service"
+TTS_PORT = "8001"
+TTS_VOICE = "en-US-AriaNeural"
+IOT_HOST = "iot-control"
+IOT_PORT = "8002"
 
 # Build endpoint based on mode
 if API_MODE == "api":
