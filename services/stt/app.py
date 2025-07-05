@@ -4,6 +4,7 @@ import asyncio
 import socket
 import time
 import wave
+import requests
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -25,6 +26,10 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
 UDP_PORT = int(os.getenv("UDP_PORT", 8000))
 SAMPLE_RATE = 16000  # ESP32 recording sample rate
+
+# Coordinator service configuration
+COORDINATOR_HOST = os.getenv("COORDINATOR_HOST", "coordinator")
+COORDINATOR_PORT = os.getenv("COORDINATOR_PORT", "8080")
 
 # Create audio directory
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -112,7 +117,8 @@ async def upload_pcm_audio(
     file: UploadFile = File(...),
     sample_rate: int = 16000,
     channels: int = 1,
-    sample_width: int = 2
+    sample_width: int = 2,
+    device_id: str = None
 ):
     """Upload PCM audio data and transcribe
     
@@ -123,6 +129,13 @@ async def upload_pcm_audio(
         # Read PCM data
         pcm_data = await file.read()
         logger.info(f"Received PCM data: {len(pcm_data)} bytes")
+        
+        # Extract device_id from filename if provided
+        if not device_id and file.filename:
+            # Try to extract device_id from filename (e.g., "esp32_ESP32_VOICE_01_123456.pcm")
+            parts = file.filename.split('_')
+            if len(parts) >= 3 and parts[0] == "esp32":
+                device_id = parts[1]
         
         # Save as WAV file for Whisper
         timestamp = int(time.time())
@@ -140,9 +153,13 @@ async def upload_pcm_audio(
         
         # Use Whisper for transcription
         result = model.transcribe(file_path)
-        transcription = result["text"]
+        transcription = result["text"].strip()
         
         logger.info(f"Transcription: {transcription}")
+        
+        # Send to Coordinator for processing if transcription is not empty
+        if transcription and transcription.lower() not in ["", " ", "blank"]:
+            await send_to_coordinator(transcription, device_id)
         
         return {
             "text": transcription,
@@ -203,6 +220,40 @@ class UDPServerProtocol:
         logger.debug(f"Received {len(data)} bytes from {addr}")
         # TODO: Implement audio processing
 
+# Send transcribed text to Coordinator
+async def send_to_coordinator(text: str, device_id: str = None):
+    """Send transcribed text to coordinator for processing"""
+    try:
+        coordinator_url = f"http://{COORDINATOR_HOST}:{COORDINATOR_PORT}/process_text"
+        
+        payload = {
+            "text": text,
+            "source": "stt_service",
+            "timestamp": time.time()
+        }
+        
+        # Add device_id if provided
+        if device_id:
+            payload["device_id"] = device_id
+            payload["location"] = "living_room"  # Default location
+        
+        logger.info(f"Sending to coordinator: {text[:50]}...")
+        
+        response = requests.post(coordinator_url, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"Coordinator processed successfully")
+            
+            # If there's an audio_id in the response, it means TTS was generated
+            if "audio_id" in result:
+                logger.info(f"TTS audio generated: {result['audio_id']}")
+        else:
+            logger.warning(f"Coordinator returned status {response.status_code}")
+            
+    except Exception as e:
+        logger.error(f"Error sending to coordinator: {str(e)}")
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
@@ -210,6 +261,7 @@ async def startup_event():
     logger.info("STT Service started")
     logger.info(f"Whisper model: {WHISPER_MODEL}")
     logger.info(f"Audio directory: {AUDIO_DIR}")
+    logger.info(f"Coordinator: http://{COORDINATOR_HOST}:{COORDINATOR_PORT}")
     
     # Start UDP server in background (optional)
     # asyncio.create_task(udp_server())
