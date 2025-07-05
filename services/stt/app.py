@@ -104,90 +104,138 @@ async def upload_audio(file: UploadFile = File(...)):
         logger.error(f"Error processing uploaded audio: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error processing uploaded audio: {str(e)}"}
+            content={"error": f"Processing error: {str(e)}"}
         )
 
-# UDP server to handle ESP32 audio stream
-async def start_udp_server():
-    """Start UDP server to receive ESP32 audio data"""
-    logger.info(f"Starting UDP server on port: {UDP_PORT}")
+@app.post("/upload_pcm")
+async def upload_pcm_audio(
+    file: UploadFile = File(...),
+    sample_rate: int = 16000,
+    channels: int = 1,
+    sample_width: int = 2
+):
+    """Upload PCM audio data and transcribe
     
-    # Create UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0', UDP_PORT))
-    sock.setblocking(False)
-    
-    # Frame counter
-    frame_count = 0
-    buffer = bytearray()
-    current_file = None
-    
-    while True:
-        try:
-            # Receive data
-            data, addr = await asyncio.get_event_loop().sock_recv(sock, 1024)
-            
-            if data.startswith(b'START'):
-                # New recording starts
-                frame_count = 0
-                buffer = bytearray()
-                logger.info(f"Receiving new recording from: {addr}")
-                continue
-                
-            elif data.startswith(b'END'):
-                # Recording ends, save file
-                if len(buffer) > 0:
-                    file_name = f"esp32_{int(time.time())}.wav"
-                    file_path = os.path.join(AUDIO_DIR, file_name)
-                    
-                    # Save as WAV file
-                    with wave.open(file_path, 'wb') as wf:
-                        wf.setnchannels(1)
-                        wf.setsampwidth(2)  # 16-bit
-                        wf.setframerate(SAMPLE_RATE)
-                        wf.writeframes(buffer)
-                    
-                    logger.info(f"Recording saved to: {file_path}")
-                    current_file = file_path
-                    
-                    # Process transcription asynchronously
-                    asyncio.create_task(process_new_audio(file_path))
-                
-                buffer = bytearray()
-                frame_count = 0
-                continue
-            
-            # Accumulate audio data
-            buffer.extend(data)
-            frame_count += 1
-            
-        except BlockingIOError:
-            await asyncio.sleep(0.01)
-        
-        except Exception as e:
-            logger.error(f"UDP processing error: {str(e)}")
-            await asyncio.sleep(1)
-
-async def process_new_audio(file_path):
-    """Process newly received audio file"""
+    This endpoint is specifically for ESP32 devices that send raw PCM data.
+    Default parameters match ESP32 recording settings.
+    """
     try:
+        # Read PCM data
+        pcm_data = await file.read()
+        logger.info(f"Received PCM data: {len(pcm_data)} bytes")
+        
+        # Save as WAV file for Whisper
+        timestamp = int(time.time())
+        filename = f"pcm_upload_{timestamp}.wav"
+        file_path = os.path.join(AUDIO_DIR, filename)
+        
+        # Convert PCM to WAV
+        with wave.open(file_path, 'wb') as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_data)
+        
+        logger.info(f"Saved PCM as WAV: {file_path}")
+        
         # Use Whisper for transcription
         result = model.transcribe(file_path)
         transcription = result["text"]
         
-        logger.info(f"Transcription result: {transcription}")
+        logger.info(f"Transcription: {transcription}")
         
-        # Here you can send to coordinator service or other processing
-        # TODO: Implement communication with coordinator service
-        
+        return {
+            "text": transcription,
+            "audio_path": file_path,
+            "format": "pcm",
+            "sample_rate": sample_rate,
+            "duration": len(pcm_data) / (sample_rate * channels * sample_width)
+        }
+    
     except Exception as e:
-        logger.error(f"Error processing new audio: {str(e)}")
+        logger.error(f"Error processing PCM audio: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"PCM processing error: {str(e)}"}
+        )
 
+# WebSocket endpoint for real-time audio streaming (future feature)
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time audio streaming"""
+    await websocket.accept()
+    logger.info("WebSocket client connected")
+    
+    try:
+        while True:
+            # Receive audio data
+            data = await websocket.receive_bytes()
+            
+            # Process audio chunk (placeholder for future implementation)
+            # For now, just echo back a message
+            await websocket.send_text("Audio chunk received")
+            
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
+
+# UDP server for real-time audio (alternative to WebSocket)
+async def udp_server():
+    """UDP server for receiving audio streams"""
+    loop = asyncio.get_event_loop()
+    transport, protocol = await loop.create_datagram_endpoint(
+        lambda: UDPServerProtocol(),
+        local_addr=('0.0.0.0', UDP_PORT)
+    )
+    
+    logger.info(f"UDP server listening on port {UDP_PORT}")
+    
+    try:
+        await asyncio.sleep(3600)  # Run for 1 hour
+    finally:
+        transport.close()
+
+class UDPServerProtocol:
+    def connection_made(self, transport):
+        self.transport = transport
+    
+    def datagram_received(self, data, addr):
+        # Process received audio data
+        logger.debug(f"Received {len(data)} bytes from {addr}")
+        # TODO: Implement audio processing
+
+# Startup event
 @app.on_event("startup")
 async def startup_event():
-    """Event handler for application startup"""
-    # Start UDP server
-    asyncio.create_task(start_udp_server())
+    """Run on application startup"""
+    logger.info("STT Service started")
+    logger.info(f"Whisper model: {WHISPER_MODEL}")
+    logger.info(f"Audio directory: {AUDIO_DIR}")
+    
+    # Start UDP server in background (optional)
+    # asyncio.create_task(udp_server())
+
+# Cleanup old audio files
+async def cleanup_old_files():
+    """Remove audio files older than 1 hour"""
+    while True:
+        try:
+            current_time = time.time()
+            for filename in os.listdir(AUDIO_DIR):
+                file_path = os.path.join(AUDIO_DIR, filename)
+                if os.path.isfile(file_path):
+                    file_age = current_time - os.path.getmtime(file_path)
+                    if file_age > 3600:  # 1 hour
+                        os.remove(file_path)
+                        logger.debug(f"Removed old file: {filename}")
+        except Exception as e:
+            logger.error(f"Cleanup error: {str(e)}")
+        
+        await asyncio.sleep(600)  # Run every 10 minutes
+
+# Start cleanup task
+@app.on_event("startup")
+async def start_cleanup():
+    asyncio.create_task(cleanup_old_files())
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
