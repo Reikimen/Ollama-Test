@@ -112,6 +112,14 @@ async def upload_audio(file: UploadFile = File(...)):
             content={"error": f"Processing error: {str(e)}"}
         )
 
+#!/usr/bin/env python3
+"""
+STT服务的device_id提取逻辑修复
+修改 services/stt/app.py 中的 upload_pcm 函数
+"""
+
+# 在 services/stt/app.py 中，找到 upload_pcm 函数并修改 device_id 提取部分：
+
 @app.post("/upload_pcm")
 async def upload_pcm_audio(
     file: UploadFile = File(...),
@@ -132,10 +140,47 @@ async def upload_pcm_audio(
         
         # Extract device_id from filename if provided
         if not device_id and file.filename:
-            # Try to extract device_id from filename (e.g., "esp32_ESP32_VOICE_01_123456.pcm")
-            parts = file.filename.split('_')
-            if len(parts) >= 3 and parts[0] == "esp32":
-                device_id = parts[1]
+            # 改进的device_id提取逻辑
+            # 文件名格式: "esp32_ESP32_VOICE_01_123456.pcm"
+            if file.filename.startswith("esp32_") and file.filename.endswith(".pcm"):
+                # 移除前缀 "esp32_" 和后缀 ".pcm"
+                filename_core = file.filename[6:-4]  # 从第6个字符开始，去掉最后4个字符(.pcm)
+                
+                # 找到最后一个下划线的位置（时间戳之前）
+                last_underscore = filename_core.rfind('_')
+                
+                if last_underscore > 0:
+                    # 提取设备ID（时间戳之前的所有内容）
+                    device_id = filename_core[:last_underscore]
+                    timestamp = filename_core[last_underscore + 1:]
+                    
+                    logger.info(f"Extracted device_id: {device_id}, timestamp: {timestamp}")
+                else:
+                    # 如果没有找到时间戳分隔符，使用整个核心部分作为device_id
+                    device_id = filename_core
+                    logger.info(f"Extracted device_id: {device_id} (no timestamp found)")
+            else:
+                # 兼容旧格式：尝试简单的分割
+                parts = file.filename.split('_')
+                if len(parts) >= 2 and parts[0] == "esp32":
+                    # 对于旧格式，组合所有非时间戳部分
+                    # 假设最后一部分（去掉.pcm）是时间戳
+                    if parts[-1].endswith('.pcm'):
+                        parts[-1] = parts[-1][:-4]  # 去掉.pcm
+                    
+                    # 如果最后一部分看起来像时间戳（全是数字），则排除它
+                    if parts[-1].isdigit():
+                        device_id = '_'.join(parts[1:-1])
+                    else:
+                        device_id = '_'.join(parts[1:])
+                    
+                    logger.info(f"Extracted device_id (legacy format): {device_id}")
+        
+        # 记录提取的或传入的device_id
+        if device_id:
+            logger.info(f"Using device_id: {device_id}")
+        else:
+            logger.warning("No device_id found in filename or parameters")
         
         # Save as WAV file for Whisper
         timestamp = int(time.time())
@@ -164,16 +209,14 @@ async def upload_pcm_audio(
         return {
             "text": transcription,
             "audio_path": file_path,
-            "format": "pcm",
-            "sample_rate": sample_rate,
-            "duration": len(pcm_data) / (sample_rate * channels * sample_width)
+            "device_id": device_id  # 返回识别到的device_id
         }
     
     except Exception as e:
         logger.error(f"Error processing PCM audio: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"PCM processing error: {str(e)}"}
+            content={"error": f"Processing error: {str(e)}"}
         )
 
 # WebSocket endpoint for real-time audio streaming (future feature)

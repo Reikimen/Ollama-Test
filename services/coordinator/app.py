@@ -425,8 +425,13 @@ user_contexts = {}
 class AudioRequest(BaseModel):
     audio_path: str
 
+# 1. 修改 TextRequest 模型，添加 device_id 字段
 class TextRequest(BaseModel):
     text: str
+    device_id: Optional[str] = None  # 新增字段
+    source: Optional[str] = None     # 新增字段
+    location: Optional[str] = "living_room"
+    timestamp: Optional[float] = None
 
 class ModelSwitchRequest(BaseModel):
     model_name: str
@@ -662,8 +667,13 @@ def determine_expression_enhanced(user_input: str, ai_response: str, iot_command
     else:
         return "neutral"
 
-# Process text with all features
-async def process_text_with_enhanced_llm(text_input, user_context=None, location="living_room"):
+# 2. 修改 process_text_with_enhanced_llm 函数签名
+async def process_text_with_enhanced_llm(
+    text_input: str,
+    user_context: str = None,
+    location: str = "living_room",
+    device_id: str = None  # 新增参数
+):
     """Enhanced text processing with current model and all features"""
     
     # Get current model
@@ -697,30 +707,53 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
     # 6. Generate TTS
     audio_url = None
     audio_path = None
+    audio_id = None  # 新增字段用于ESP32
+    
     try:
-        tts_url = f"http://{TTS_HOST}:{TTS_PORT}/synthesize"
-        tts_payload = {
-            "text": ai_response,
-            "voice": TTS_VOICE,
-            "format": "mp3"
-        }
-        
-        logger.info(f"🔊 Requesting TTS for: {ai_response[:50]}...")
-        tts_response = requests.post(tts_url, json=tts_payload, timeout=10)
-        
-        if tts_response.status_code == 200:
-            audio_data = tts_response.json()
-            audio_path = audio_data.get("audio_path", "")
+        # 根据是否有 device_id 选择不同的端点
+        if device_id:
+            # ESP32设备：使用专门的端点
+            tts_url = f"http://{TTS_HOST}:{TTS_PORT}/esp32/synthesize"
+            tts_payload = {
+                "text": ai_response,
+                "voice": TTS_VOICE,
+                "format": "pcm"  # ESP32使用PCM格式
+            }
+            headers = {
+                "X-Device-ID": device_id
+            }
             
-            if audio_path:
-                # 提取文件名并构建URL
-                audio_filename = audio_path.split('/')[-1]
-                # 为前端构建正确的URL
-                audio_url = f"http://{TTS_HOST}:{TTS_PORT}/audio/{audio_filename}"
-                logger.info(f"✅ TTS generated successfully: {audio_url}")
-            else:
-                logger.warning("TTS response missing audio_path")
+            logger.info(f"🔊 Requesting TTS for ESP32 device {device_id}: {ai_response[:50]}...")
+            tts_response = requests.post(tts_url, json=tts_payload, headers=headers, timeout=10)
+            
+            if tts_response.status_code == 200:
+                response_data = tts_response.json()
+                audio_id = response_data.get("audio_id")
+                logger.info(f"✅ TTS task created for ESP32: {audio_id}")
         else:
+            # Web客户端：使用原有端点
+            tts_url = f"http://{TTS_HOST}:{TTS_PORT}/synthesize"
+            tts_payload = {
+                "text": ai_response,
+                "voice": TTS_VOICE,
+                "format": "mp3"
+            }
+            
+            logger.info(f"🔊 Requesting TTS for web client: {ai_response[:50]}...")
+            tts_response = requests.post(tts_url, json=tts_payload, timeout=10)
+            
+            if tts_response.status_code == 200:
+                audio_data = tts_response.json()
+                audio_path = audio_data.get("audio_path", "")
+                
+                if audio_path:
+                    audio_filename = audio_path.split('/')[-1]
+                    audio_url = f"http://{TTS_HOST}:{TTS_PORT}/audio/{audio_filename}"
+                    logger.info(f"✅ TTS generated successfully: {audio_url}")
+                else:
+                    logger.warning("TTS response missing audio_path")
+        
+        if tts_response.status_code != 200:
             logger.error(f"TTS request failed with status {tts_response.status_code}")
             logger.error(f"TTS error response: {tts_response.text}")
             
@@ -728,16 +761,14 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
         logger.error("TTS request timeout")
     except Exception as e:
         logger.error(f"TTS generation error: {str(e)}")
-        # TTS 失败不应该中断整个流程
     
-    # 7. Save config after processing (to persist any changes)
+    # 7. 保存配置
     config_info = model_manager.get_config_status()
     
-    return {
+    # 构建返回结果
+    result = {
         "input_text": text_input,
         "ai_response": ai_response,
-        "audio_path": audio_path,
-        "audio_url": audio_url,
         "expression": expression,
         "iot_commands": iot_commands,
         "iot_results": iot_results,
@@ -750,6 +781,18 @@ async def process_text_with_enhanced_llm(text_input, user_context=None, location
             "config_file_path": config_info["config_file_path"]
         }
     }
+    
+    # 根据设备类型添加不同的音频信息
+    if device_id:
+        result["device_id"] = device_id
+        result["audio_id"] = audio_id
+        result["audio_format"] = "pcm"
+    else:
+        result["audio_path"] = audio_path
+        result["audio_url"] = audio_url
+        result["audio_format"] = "mp3"
+    
+    return result
 
 # API Endpoints
 
@@ -1171,13 +1214,16 @@ async def reset_config(request: ConfigResetRequest):
 
 # Main Processing Endpoints
 
+# 3. 修改 process_text 端点
 @app.post("/process_text")
 async def process_text(request: TextRequest):
     """Process text input - 支持两种模式 + TTS"""
     try:
+        # 传递 device_id 到处理函数
         result = await process_text_with_enhanced_llm(
             request.text,
-            location="living_room"
+            location=request.location or "living_room",
+            device_id=request.device_id  # 传递 device_id
         )
         return result
         
@@ -1188,12 +1234,14 @@ async def process_text(request: TextRequest):
             content={"error": f"Error processing text: {str(e)}"}
         )
 
+# 4. 修改 process_audio 端点（如果需要）
 @app.post("/process_audio")
 async def process_audio(request: AudioRequest):
     """Process audio input with TTS support"""
     try:
         audio_path = request.audio_path
-        logger.info(f"🎤 Processing audio: {audio_path}")
+        device_id = request.device_id if hasattr(request, 'device_id') else None
+        logger.info(f"🎤 Processing audio: {audio_path}, device_id: {device_id}")
         
         # STT processing
         stt_url = f"http://{STT_HOST}:{STT_PORT}/transcribe"
@@ -1213,7 +1261,8 @@ async def process_audio(request: AudioRequest):
         # Process the transcribed text (包括TTS)
         result = await process_text_with_enhanced_llm(
             text_result,
-            location="living_room"
+            location="living_room",
+            device_id=device_id  # 传递 device_id
         )
         
         return result
