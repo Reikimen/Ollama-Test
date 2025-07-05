@@ -132,7 +132,7 @@
         <div class="input-group">
             <label for="deviceId">ESP32 Device ID:</label>
             <select id="deviceId">
-                <option value="ESP32_001">ESP32_001 (Default)</option>
+                <option value="ESP32_VOICE_01">ESP32_VOICE_01 (Default)</option>
                 <option value="ESP32_002">ESP32_002</option>
                 <option value="ESP32_003">ESP32_003</option>
                 <option value="custom">Custom...</option>
@@ -201,7 +201,7 @@
         function getCurrentDeviceId() {
             const select = document.getElementById('deviceId');
             if (select.value === 'custom') {
-                return document.getElementById('customDeviceId').value || 'ESP32_001';
+                return document.getElementById('customDeviceId').value || 'ESP32_VOICE_01';
             }
             return select.value;
         }
