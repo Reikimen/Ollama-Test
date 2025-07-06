@@ -18,6 +18,18 @@ from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 load_dotenv() 
 
+# 导入系统配置
+from system_config import (
+    ENVIRONMENTAL_DATA,
+    get_comprehensive_system_prompt,
+    extract_iot_commands_enhanced,
+    determine_expression_enhanced,
+    get_scene_actions,
+    update_sensor_data,
+    get_all_sensors_data,
+    SCENE_MODES
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -354,55 +366,7 @@ model_manager = EnhancedModelManager()
 
 # Global variables
 startup_time = time.time()
-environmental_data = {
-    "sensors": {
-        "living_room": {
-            "temperature": 22.5,
-            "humidity": 45,
-            "co2": 480,
-            "voc": 25,
-            "motion": False,
-            "light_level": 300,
-            "last_update": "2025-06-03T10:30:00"
-        },
-        "bedroom": {
-            "temperature": 21.8,
-            "humidity": 48,
-            "co2": 420,
-            "voc": 15,
-            "motion": False,
-            "light_level": 150,
-            "last_update": "2025-06-03T10:30:00"
-        },
-        "kitchen": {
-            "temperature": 23.5,
-            "humidity": 55,
-            "co2": 550,
-            "voc": 35,
-            "motion": True,
-            "light_level": 400,
-            "last_update": "2025-06-03T10:30:00"
-        },
-        "study": {
-            "temperature": 23.1,
-            "humidity": 52,
-            "co2": 430,
-            "voc": 18,
-            "motion": False,
-            "light_level": 350,
-            "last_update": "2025-06-03T10:30:00"
-        },
-        "bathroom": {
-            "temperature": 24.8,
-            "humidity": 70,
-            "co2": 400,
-            "voc": 20,
-            "motion": False,
-            "light_level": 200,
-            "last_update": "2025-06-03T10:30:00"
-        }
-    }
-}
+environmental_data = ENVIRONMENTAL_DATA  # 使用导入的数据
 
 # Create FastAPI application
 app = FastAPI(title="AI Voice Assistant Coordinator Service - Enhanced with API Mode")
@@ -462,34 +426,6 @@ class ConfigExportRequest(BaseModel):
 class ModeSwitchRequest(BaseModel):
     mode: str  # "local" or "api"
 
-# Helper functions for LLM processing
-def get_comprehensive_system_prompt(user_context=None, location="living_room"):
-    """生成系统提示词 - 兼容两种模式"""
-    base_prompt = """You are an intelligent AI assistant for a smart home system. Your capabilities include:
-1. Controlling various IoT devices (lights, fans, air conditioners, curtains) in different rooms
-2. Understanding and responding in both English and Chinese
-3. Providing natural, conversational responses
-4. Interpreting user intent even from indirect requests
-
-Current environment:"""
-    
-    # Add sensor data
-    if location in environmental_data["sensors"]:
-        sensor_data = environmental_data["sensors"][location]
-        base_prompt += f"\n- Location: {location}"
-        base_prompt += f"\n- Temperature: {sensor_data['temperature']}°C"
-        base_prompt += f"\n- Humidity: {sensor_data['humidity']}%"
-        base_prompt += f"\n- CO2: {sensor_data['co2']} ppm"
-        base_prompt += f"\n- Motion detected: {sensor_data['motion']}"
-    
-    # Add user context if provided
-    if user_context:
-        base_prompt += f"\n\nUser context: {json.dumps(user_context, ensure_ascii=False)}"
-    
-    base_prompt += "\n\nWhen users ask you to control devices, acknowledge their request and confirm the action."
-    
-    return base_prompt
-
 async def process_with_llm(text_input: str, context: Dict = None, location: str = "living_room"):
     """Process text with LLM based on current mode"""
     try:
@@ -545,95 +481,6 @@ async def process_with_llm(text_input: str, context: Dict = None, location: str 
         logger.error(f"Error processing with LLM: {str(e)}")
         return "I apologize, an error occurred while processing your request."
 
-def extract_iot_commands_enhanced(text: str, location: str = "living_room"):
-    """从文本中提取IoT命令 - 支持中英文和语义理解"""
-    commands = []
-    text_lower = text.lower()
-    
-    # 设备类型映射
-    device_types = {
-        "light": ["light", "lights", "灯", "电灯", "照明"],
-        "fan": ["fan", "风扇", "电扇"],
-        "ac": ["ac", "air conditioner", "空调", "冷气"],
-        "curtain": ["curtain", "curtains", "窗帘", "窗户"]
-    }
-    
-    # 动作映射
-    actions = {
-        "on": ["turn on", "open", "switch on", "activate", "打开", "开启", "启动", "开"],
-        "off": ["turn off", "close", "switch off", "deactivate", "关闭", "关掉", "关"],
-        "brighten": ["brighten", "brighter", "increase brightness", "调亮", "亮一点"],
-        "dim": ["dim", "dimmer", "decrease brightness", "调暗", "暗一点"],
-        "speed_up": ["speed up", "faster", "increase speed", "加速", "快一点"],
-        "speed_down": ["slow down", "slower", "decrease speed", "减速", "慢一点"],
-        "temp_up": ["warmer", "increase temperature", "heat up", "调高温度", "热一点"],
-        "temp_down": ["cooler", "decrease temperature", "cool down", "调低温度", "冷一点"]
-    }
-    
-    # 房间映射
-    rooms = {
-        "living_room": ["living room", "客厅", "大厅"],
-        "bedroom": ["bedroom", "卧室", "睡房"],
-        "kitchen": ["kitchen", "厨房"],
-        "study": ["study", "study room", "书房", "办公室"],
-        "bathroom": ["bathroom", "restroom", "toilet", "洗手间", "卫生间", "厕所"]
-    }
-    
-    # 查找房间
-    detected_room = location  # 默认使用传入的location
-    for room_key, room_keywords in rooms.items():
-        for keyword in room_keywords:
-            if keyword in text_lower:
-                detected_room = room_key
-                break
-    
-    # 查找设备和动作
-    for device_key, device_keywords in device_types.items():
-        for device_word in device_keywords:
-            if device_word in text_lower:
-                # 找到设备，现在查找对应的动作
-                detected_action = None
-                for action_key, action_keywords in actions.items():
-                    for action_word in action_keywords:
-                        if action_word in text_lower:
-                            # 检查动作是否适用于该设备
-                            if is_valid_action(device_key, action_key):
-                                detected_action = action_key
-                                break
-                    if detected_action:
-                        break
-                
-                # 如果找到了有效的动作，添加命令
-                if detected_action:
-                    commands.append({
-                        "device_type": device_key,
-                        "device": f"{device_key}",
-                        "room": detected_room,
-                        "location": detected_room,
-                        "action": detected_action
-                    })
-    
-    # 场景模式检测
-    scene_keywords = {
-        "sleep_mode": ["sleep mode", "睡眠模式", "good night", "晚安"],
-        "work_mode": ["work mode", "工作模式", "working", "办公"],
-        "movie_mode": ["movie mode", "电影模式", "watch movie", "看电影"],
-        "home_mode": ["home mode", "回家模式", "i'm home", "我回来了"],
-        "away_mode": ["away mode", "离家模式", "leaving", "我走了"]
-    }
-    
-    for scene_key, keywords in scene_keywords.items():
-        for keyword in keywords:
-            if keyword in text_lower:
-                commands.append({
-                    "scene": scene_key,
-                    "room": detected_room,
-                    "type": "scene"
-                })
-                break
-    
-    return commands
-
 def is_valid_action(device_type: str, action: str) -> bool:
     """检查动作是否适用于设备类型"""
     valid_actions = {
@@ -644,28 +491,6 @@ def is_valid_action(device_type: str, action: str) -> bool:
     }
     
     return action in valid_actions.get(device_type, [])
-
-def determine_expression_enhanced(user_input: str, ai_response: str, iot_commands: List[Dict]) -> str:
-    """根据对话内容确定表情/情绪"""
-    # 检查是否有IoT命令执行
-    if iot_commands:
-        return "happy"  # 成功执行命令
-    
-    # 基于用户输入的情绪检测
-    positive_keywords = ["thank", "thanks", "good", "great", "谢谢", "好的", "棒"]
-    negative_keywords = ["bad", "wrong", "error", "不好", "错误", "糟糕"]
-    question_keywords = ["?", "what", "how", "why", "什么", "怎么", "为什么"]
-    
-    user_lower = user_input.lower()
-    
-    if any(keyword in user_lower for keyword in negative_keywords):
-        return "sad"
-    elif any(keyword in user_lower for keyword in positive_keywords):
-        return "happy"
-    elif any(keyword in user_lower for keyword in question_keywords):
-        return "thinking"
-    else:
-        return "neutral"
 
 # 2. 修改 process_text_with_enhanced_llm 函数签名
 async def process_text_with_enhanced_llm(
