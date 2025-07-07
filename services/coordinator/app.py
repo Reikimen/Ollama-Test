@@ -7,6 +7,8 @@ import websockets
 import time
 import re
 import uuid
+import asyncio
+from threading import Thread, Lock
 from enum import Enum
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Response
 from fastapi.responses import JSONResponse, FileResponse
@@ -385,6 +387,11 @@ connected_clients = {}
 registered_devices = {}
 user_contexts = {}
 
+# 全局变量存储最新状态
+latest_sensor_data = {}
+latest_device_states = {}
+data_lock = Lock()  # 线程安全锁
+
 # Request models
 class AudioRequest(BaseModel):
     audio_path: str
@@ -433,24 +440,34 @@ async def process_with_llm(text_input: str, context: Dict = None, location: str 
         enhanced_context = context or {}
         
         # 尝试从IoT服务获取所有传感器的最新数据
-        try:
-            sensors_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/sensors", timeout=2)
-            if sensors_response.status_code == 200:
-                all_sensors = sensors_response.json().get("sensors", {})
-                # 更新本地的ENVIRONMENTAL_DATA
-                ENVIRONMENTAL_DATA["sensors"].update(all_sensors)
-                enhanced_context["real_time_sensors"] = all_sensors
-        except Exception as e:
-            logger.warning(f"Could not fetch real-time sensor data: {e}")
+        # try:
+        #     sensors_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/sensors", timeout=2)
+        #     if sensors_response.status_code == 200:
+        #         all_sensors = sensors_response.json().get("sensors", {})
+        #         # 更新本地的ENVIRONMENTAL_DATA
+        #         ENVIRONMENTAL_DATA["sensors"].update(all_sensors)
+        #         enhanced_context["real_time_sensors"] = all_sensors
+        # except Exception as e:
+        #     logger.warning(f"Could not fetch real-time sensor data: {e}")
         
-        # 获取所有设备状态
-        try:
-            devices_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/devices", timeout=2)
-            if devices_response.status_code == 200:
-                all_devices = devices_response.json().get("devices", {})
-                enhanced_context["device_states"] = all_devices
-        except Exception as e:
-            logger.warning(f"Could not fetch device states: {e}")
+        # # 获取所有设备状态
+        # try:
+        #     devices_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/devices", timeout=2)
+        #     if devices_response.status_code == 200:
+        #         all_devices = devices_response.json().get("devices", {})
+        #         enhanced_context["device_states"] = all_devices
+        # except Exception as e:
+        #     logger.warning(f"Could not fetch device states: {e}")
+
+        # 使用缓存的最新数据（立即返回，无延迟)
+        with data_lock:
+            if latest_sensor_data:
+                # 更新本地的ENVIRONMENTAL_DATA
+                ENVIRONMENTAL_DATA["sensors"].update(latest_sensor_data)
+                enhanced_context["real_time_sensors"] = latest_sensor_data
+            
+            if latest_device_states:
+                enhanced_context["device_states"] = latest_device_states
         
         # 生成包含所有房间信息的系统提示词
         system_prompt = get_comprehensive_system_prompt(enhanced_context, location)
@@ -516,6 +533,32 @@ def is_valid_action(device_type: str, action: str) -> bool:
     }
     
     return action in valid_actions.get(device_type, [])
+
+def background_updater():
+    """后台定期更新传感器和设备状态"""
+    while True:
+        try:
+            # 更新传感器数据
+            try:
+                response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/sensors", timeout=1)
+                if response.status_code == 200:
+                    latest_sensor_data.update(response.json().get("sensors", {}))
+            except:
+                pass
+            
+            # 更新设备状态
+            try:
+                response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/devices", timeout=1)
+                if response.status_code == 200:
+                    latest_device_states.update(response.json().get("devices", {}))
+            except:
+                pass
+                
+        except Exception as e:
+            logger.error(f"Background updater error: {e}")
+        
+        # 每30秒更新一次
+        time.sleep(30)
 
 # 2. 修改 process_text_with_enhanced_llm 函数签名
 async def process_text_with_enhanced_llm(
@@ -1797,6 +1840,11 @@ async def startup_event():
     await model_manager.get_available_models(force_refresh=True)
     
     logger.info("✅ Coordinator service started successfully")
+
+    # 启动后台更新线程
+    updater_thread = Thread(target=background_updater, daemon=True)
+    updater_thread.start()
+    logger.info("✅ Background state updater started")
 
 # Run the application
 if __name__ == "__main__":
