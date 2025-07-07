@@ -177,24 +177,38 @@ EMOTION_KEYWORDS = {
 # ==================== 辅助函数 ====================
 def get_comprehensive_system_prompt(user_context: Optional[Dict] = None, 
                                   location: str = "living_room") -> str:
-    """生成完整的系统提示词"""
+    """生成包含所有房间信息的系统提示词"""
     prompt = BASE_SYSTEM_PROMPT
     
-    # 添加传感器数据
-    if location in ENVIRONMENTAL_DATA["sensors"]:
-        sensor_data = ENVIRONMENTAL_DATA["sensors"][location]
-        prompt += f"\n- Location: {location}"
+    # 添加所有房间的传感器数据
+    prompt += "\n\nCurrent environment status across all rooms:"
+    
+    # 遍历所有房间
+    for room_name, sensor_data in ENVIRONMENTAL_DATA["sensors"].items():
+        room_display_name = room_name.replace('_', ' ').title()
+        prompt += f"\n\n{room_display_name}:"
         prompt += f"\n- Temperature: {sensor_data['temperature']}°C"
         prompt += f"\n- Humidity: {sensor_data['humidity']}%"
         prompt += f"\n- CO2: {sensor_data['co2']} ppm"
+        prompt += f"\n- VOC: {sensor_data['voc']}"
         prompt += f"\n- Motion detected: {sensor_data['motion']}"
+        prompt += f"\n- Light level: {sensor_data['light_level']} lux"
+    
+    # 如果指定了当前位置，强调一下
+    if location and location in ENVIRONMENTAL_DATA["sensors"]:
+        prompt += f"\n\nUser is currently in: {location}"
     
     # 添加用户上下文
     if user_context:
         prompt += f"\n\nUser context: {json.dumps(user_context, ensure_ascii=False)}"
     
-    prompt += "\n\nWhen users ask you to control devices, acknowledge their request and confirm the action."
-    prompt += "\n\nRespond naturally in the language the user uses (English or Chinese)."
+    # 添加指导说明
+    prompt += "\n\nImportant instructions:"
+    prompt += "\n- You have access to ALL rooms in the house (living_room, bedroom, kitchen, study, bathroom)"
+    prompt += "\n- You can control devices in ANY room, not just the current location"
+    prompt += "\n- When users mention a room, execute commands for that specific room"
+    prompt += "\n- If no room is specified, you can ask which room they mean or use the current location"
+    prompt += "\n- Respond naturally in the language the user uses (English or Chinese)"
     
     return prompt
 

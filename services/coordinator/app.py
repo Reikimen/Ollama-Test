@@ -429,8 +429,33 @@ class ModeSwitchRequest(BaseModel):
 async def process_with_llm(text_input: str, context: Dict = None, location: str = "living_room"):
     """Process text with LLM based on current mode"""
     try:
-        system_prompt = get_comprehensive_system_prompt(context, location)
+        # 获取所有房间的实时状态并添加到上下文
+        enhanced_context = context or {}
         
+        # 尝试从IoT服务获取所有传感器的最新数据
+        try:
+            sensors_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/sensors", timeout=2)
+            if sensors_response.status_code == 200:
+                all_sensors = sensors_response.json().get("sensors", {})
+                # 更新本地的ENVIRONMENTAL_DATA
+                ENVIRONMENTAL_DATA["sensors"].update(all_sensors)
+                enhanced_context["real_time_sensors"] = all_sensors
+        except Exception as e:
+            logger.warning(f"Could not fetch real-time sensor data: {e}")
+        
+        # 获取所有设备状态
+        try:
+            devices_response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/devices", timeout=2)
+            if devices_response.status_code == 200:
+                all_devices = devices_response.json().get("devices", {})
+                enhanced_context["device_states"] = all_devices
+        except Exception as e:
+            logger.warning(f"Could not fetch device states: {e}")
+        
+        # 生成包含所有房间信息的系统提示词
+        system_prompt = get_comprehensive_system_prompt(enhanced_context, location)
+        
+        # 继续原有的处理逻辑...
         if model_manager.current_mode == APIMode.REMOTE_API:
             # Use OpenAI-compatible API format
             payload = {
