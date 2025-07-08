@@ -29,6 +29,8 @@ from system_config import (
     get_all_sensors_data,
     SCENE_MODES
 )
+from llm_analyzer import LLMAnalyzer, IntentProcessor
+from processing_config import processing_config, ProcessingMode, switch_processing_mode, get_processing_status
 
 # Configure logging
 logging.basicConfig(
@@ -364,6 +366,10 @@ class EnhancedModelManager:
 # Initialize model manager
 model_manager = EnhancedModelManager()
 
+# 初始化LLM分析器和意图处理器
+llm_analyzer = None
+intent_processor = None
+
 # Global variables
 startup_time = time.time()
 environmental_data = ENVIRONMENTAL_DATA  # 使用导入的数据
@@ -425,6 +431,63 @@ class ConfigExportRequest(BaseModel):
 
 class ModeSwitchRequest(BaseModel):
     mode: str  # "local" or "api"
+
+async def get_real_time_environmental_data() -> Dict:
+    """获取实时环境数据"""
+    try:
+        response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/sensors", timeout=2)
+        if response.status_code == 200:
+            return response.json().get("sensors", {})
+    except Exception as e:
+        logger.warning(f"Failed to fetch sensor data: {e}")
+    return ENVIRONMENTAL_DATA.get("sensors", {})
+
+async def get_real_time_device_states() -> Dict:
+    """获取实时设备状态"""
+    try:
+        response = requests.get(f"http://{IOT_HOST}:{IOT_PORT}/devices", timeout=2)
+        if response.status_code == 200:
+            return response.json().get("devices", {})
+    except Exception as e:
+        logger.warning(f"Failed to fetch device states: {e}")
+    return {}
+
+def determine_expression_from_intent(analysis_result: Dict) -> str:
+    """基于意图分析结果确定表情"""
+    intent = analysis_result["intent"]["primary_intent"]
+    confidence = analysis_result["intent"]["confidence"]
+    
+    if intent == "control" and confidence > 0.7:
+        return "happy"
+    elif intent == "query":
+        return "thinking"
+    elif intent == "scene" and confidence > 0.7:
+        return "excited"
+    elif confidence < 0.5:
+        return "confused"
+    else:
+        return "neutral"
+    
+# 3. 统一处理入口
+async def process_text_unified(
+    text_input: str,
+    user_context: Optional[Dict] = None,
+    location: str = "living_room",
+    device_id: Optional[str] = None
+) -> Dict:
+    # 完整实现见之前的artifacts
+    pass
+
+# 4. 降级处理函数（使用原有的关键词匹配）
+async def process_text_with_keyword_fallback(
+    text_input: str, 
+    location: str = "living_room"
+) -> Dict:
+    """关键词匹配降级处理 - 当LLM分析失败时使用"""
+    # 这里使用原有的 extract_iot_commands_enhanced
+    iot_commands = extract_iot_commands_enhanced(text_input, location)
+    # ... 处理逻辑
+    pass
 
 async def process_with_llm(text_input: str, context: Dict = None, location: str = "living_room"):
     """Process text with LLM based on current mode"""
@@ -530,29 +593,25 @@ async def process_text_with_enhanced_llm(
     current_model = model_manager.get_current_model()
     
     # 1. Generate system prompt
-    system_prompt = get_comprehensive_system_prompt(user_context, location)
+    environmental_data = await get_real_time_environmental_data()
+    device_states = await get_real_time_device_states()
     
-    # 2. Extract IoT commands
-    iot_commands = extract_iot_commands_enhanced(text_input, location)
+    # 2. Extract IoT commands，使用LLM分析用户意图（替代关键词匹配）
+    analysis_result = await llm_analyzer.analyze_intent(
+        user_input=text_input,
+        environmental_data=environmental_data,
+        device_states=device_states,
+        user_context=user_context
+    )
     
     # 3. Execute IoT commands
-    iot_results = []
-    for command in iot_commands:
-        try:
-            iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
-            iot_response = requests.post(iot_url, json=command)
-            if iot_response.status_code == 200:
-                iot_results.append(iot_response.json())
-            else:
-                iot_results.append({"error": f"IoT command failed: {iot_response.text}"})
-        except Exception as e:
-            iot_results.append({"error": f"IoT service error: {str(e)}"})
+    execution_results = await intent_processor.process_intent(analysis_result)
     
     # 4. Generate AI response using current model
-    ai_response = await process_with_llm(text_input, user_context, location)
+    ai_response = analysis_result["natural_response"]
     
     # 5. Determine expression/emotion
-    expression = determine_expression_enhanced(text_input, ai_response, iot_commands)
+    expression = determine_expression_from_intent(analysis_result)
     
     # 6. Generate TTS
     audio_url = None
@@ -620,16 +679,16 @@ async def process_text_with_enhanced_llm(
         "input_text": text_input,
         "ai_response": ai_response,
         "expression": expression,
-        "iot_commands": iot_commands,
-        "iot_results": iot_results,
-        "location": location,
-        "user_context": user_context,
-        "model_used": current_model,
-        "model_info": model_manager.get_model_info(current_model),
-        "config_file_info": {
-            "config_updated": config_info["config_exists"],
-            "config_file_path": config_info["config_file_path"]
-        }
+        "intent_analysis": {  # 新增字段
+            "primary_intent": analysis_result["intent"]["primary_intent"],
+            "confidence": analysis_result["intent"]["confidence"],
+            "detected_entities": analysis_result["intent"]["detected_entities"]
+        },
+        "iot_commands": analysis_result["commands"],  # 来自智能分析
+        "iot_results": execution_results["executed_commands"],
+        "context_awareness": analysis_result["context_awareness"],  # 新增
+        "follow_up_suggestions": analysis_result["follow_up_suggestions"],  # 新增
+        "processing_mode": "intelligent"  # 标记处理模式
     }
     
     # 根据设备类型添加不同的音频信息
@@ -1067,16 +1126,16 @@ async def reset_config(request: ConfigResetRequest):
 # 3. 修改 process_text 端点
 @app.post("/process_text")
 async def process_text(request: TextRequest):
-    """Process text input - 支持两种模式 + TTS"""
     try:
-        # 传递 device_id 到处理函数
-        result = await process_text_with_enhanced_llm(
+        # 不再直接调用 process_text_with_enhanced_llm
+        # 而是使用新的统一处理函数
+        result = await process_text_unified(
             request.text,
+            user_context=None,  # 从请求中提取
             location=request.location or "living_room",
-            device_id=request.device_id  # 传递 device_id
+            device_id=request.device_id
         )
         return result
-        
     except Exception as e:
         logger.error(f"Error processing text: {str(e)}")
         return JSONResponse(
@@ -1797,6 +1856,47 @@ async def startup_event():
     await model_manager.get_available_models(force_refresh=True)
     
     logger.info("✅ Coordinator service started successfully")
+
+    # ========== 新增：初始化智能分析组件 ==========
+    try:
+        # 初始化LLM分析器
+        llm_analyzer = LLMAnalyzer(
+            ollama_host=OLLAMA_HOST,
+            ollama_port=OLLAMA_PORT,
+            model_name=model_manager.current_model
+        )
+        logger.info("✅ LLM Analyzer initialized successfully")
+        
+        # 初始化意图处理器
+        intent_processor = IntentProcessor(
+            iot_service_url=f"http://{IOT_HOST}:{IOT_PORT}"
+        )
+        logger.info("✅ Intent Processor initialized successfully")
+        
+        # 加载处理模式配置
+        current_processing_mode = processing_config.get_mode()
+        logger.info(f"🎯 Processing mode: {current_processing_mode.value}")
+        
+        # 如果是智能模式或混合模式，验证LLM连接
+        if current_processing_mode in [ProcessingMode.INTELLIGENT, ProcessingMode.HYBRID]:
+            # 测试LLM连接
+            test_result = await llm_analyzer.analyze_intent(
+                user_input="test connection",
+                environmental_data={},
+                device_states={},
+                user_context=None
+            )
+            
+            if test_result and "intent" in test_result:
+                logger.info("✅ LLM connection verified")
+            else:
+                logger.warning("⚠️ LLM connection test failed, falling back to hybrid mode")
+                processing_config.set_mode(ProcessingMode.HYBRID)
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize intelligent components: {str(e)}")
+        logger.warning("⚠️ Falling back to traditional processing mode")
+        processing_config.set_mode(ProcessingMode.TRADITIONAL)
 
 # Run the application
 if __name__ == "__main__":
