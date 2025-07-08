@@ -1126,16 +1126,17 @@ async def reset_config(request: ConfigResetRequest):
 # 3. 修改 process_text 端点
 @app.post("/process_text")
 async def process_text(request: TextRequest):
+    """Process text input"""
     try:
-        # 不再直接调用 process_text_with_enhanced_llm
-        # 而是使用新的统一处理函数
-        result = await process_text_unified(
+        # 直接调用 process_text_with_enhanced_llm
+        result = await process_text_with_enhanced_llm(
             request.text,
-            user_context=None,  # 从请求中提取
+            user_context=None,
             location=request.location or "living_room",
             device_id=request.device_id
         )
         return result
+        
     except Exception as e:
         logger.error(f"Error processing text: {str(e)}")
         return JSONResponse(
