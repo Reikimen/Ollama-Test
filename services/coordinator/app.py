@@ -29,6 +29,7 @@ from system_config import (
     get_all_sensors_data,
     SCENE_MODES
 )
+from llm_iot_extractor import LLMIoTExtractor
 
 # Configure logging
 logging.basicConfig(
@@ -193,6 +194,14 @@ class EnhancedModelManager:
         else:
             self.current_model = OLLAMA_MODEL
             self.api_headers = {}
+
+        # 更新全局 llm_extractor 的配置（如果已初始化）
+        global llm_extractor
+        if llm_extractor is not None:
+            llm_extractor.model_name = self.current_model
+            llm_extractor.api_headers = self.api_headers
+            llm_extractor.ollama_endpoint = OLLAMA_ENDPOINT
+            logger.info(f"✅ Updated LLM extractor for {mode} mode")
         
         # Save mode preference
         self._save_preferences_to_file()
@@ -364,6 +373,13 @@ class EnhancedModelManager:
 # Initialize model manager
 model_manager = EnhancedModelManager()
 
+# 在 EnhancedModelManager 初始化后添加
+llm_extractor = LLMIoTExtractor(
+    ollama_endpoint=OLLAMA_ENDPOINT,
+    model_name=model_manager.current_model,
+    api_headers=model_manager.api_headers
+)
+
 # Global variables
 startup_time = time.time()
 environmental_data = ENVIRONMENTAL_DATA  # 使用导入的数据
@@ -533,7 +549,18 @@ async def process_text_with_enhanced_llm(
     system_prompt = get_comprehensive_system_prompt(user_context, location)
     
     # 2. Extract IoT commands
-    iot_commands = extract_iot_commands_enhanced(text_input, location)
+    # iot_commands = extract_iot_commands_enhanced(text_input, location) # Old version
+    # 确保使用最新的模型配置
+    llm_extractor.model_name = model_manager.current_model
+    llm_extractor.api_headers = model_manager.api_headers
+    llm_extractor.ollama_endpoint = OLLAMA_ENDPOINT
+    
+    try:
+        iot_commands = llm_extractor.extract_iot_commands_with_llm(text_input, location)
+        logger.info(f"🤖 LLM extracted {len(iot_commands)} IoT commands")
+    except Exception as e:
+        logger.error(f"LLM extraction failed: {e}, using empty command list")
+        iot_commands = []
     
     # 3. Execute IoT commands
     iot_results = []
