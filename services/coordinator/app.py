@@ -564,16 +564,18 @@ async def process_text_with_enhanced_llm(
     
     # 3. Execute IoT commands
     iot_results = []
-    for command in iot_commands:
+    if iot_commands:
         try:
             iot_url = f"http://{IOT_HOST}:{IOT_PORT}/control"
-            iot_response = requests.post(iot_url, json=command)
+            # 正确格式：将所有命令放在commands数组中
+            iot_response = requests.post(iot_url, json={"commands": iot_commands})
+            
             if iot_response.status_code == 200:
-                iot_results.append(iot_response.json())
+                iot_results = iot_response.json().get("results", [])
             else:
-                iot_results.append({"error": f"IoT command failed: {iot_response.text}"})
+                iot_results = [{"error": f"IoT command failed: {iot_response.text}"}]
         except Exception as e:
-            iot_results.append({"error": f"IoT service error: {str(e)}"})
+            iot_results = [{"error": f"IoT service error: {str(e)}"}]
     
     # 4. Generate AI response using current model
     ai_response = await process_with_llm(text_input, user_context, location)
