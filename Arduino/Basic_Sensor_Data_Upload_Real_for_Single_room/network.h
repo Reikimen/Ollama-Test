@@ -1,9 +1,12 @@
 // WiFi配置
-const char* ssid = "CE-Hub-Student";
-const char* password = "casa-ce-gagarin-public-service";
+// const char* ssid = "CE-Hub-Student";
+// const char* password = "casa-ce-gagarin-public-service";
+const char* ssid = "CE-Dankao";
+const char* password = "CELAB2025";
 
 // 服务器配置
-const char* server_host = "10.129.113.188";
+// const char* server_host = "10.129.113.188";
+const char* server_host = "192.168.153.177";
 const int server_port = 8002; // IoT服务端口
 const char* server_path = "/ws";
 
