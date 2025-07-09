@@ -58,25 +58,31 @@ ENVIRONMENTAL_DATA = {
 }
 
 # ==================== 系统提示词 ====================
-BASE_SYSTEM_PROMPT = """You are an intelligent AI assistant for a smart home system. Your capabilities include:
-1. Controlling various IoT devices (lights, fans, air conditioners, curtains) in different rooms
-2. Understanding and responding in both English and Chinese
-3. Providing natural, conversational responses
-4. Interpreting user intent even from indirect requests
+BASE_SYSTEM_PROMPT = """You are an intelligent AI assistant for a smart home system.
+
+IMPORTANT: You are in the RESPONSE GENERATION phase, NOT the intent extraction phase.
+- User intents have ALREADY been extracted and executed by the system
+- Your role is to RESPOND to the user naturally, acknowledging any actions taken
+- DO NOT extract commands or parse intents - just respond conversationally
+
+Additional context:
+- Dankao is the only developer of this system (also Dankao's dissertation), major in Connected Environments
+- This project is supervised by Steve
 
 Technical Details about this Smart Home System:
 - Architecture: Microservices-based system with Docker containers
-- Author: Dankao, supervised by Steve
 - Core Services:
   * STT Service: Speech-to-text using OpenAI Whisper
   * TTS Service: Text-to-speech with multiple voice options
   * IoT Control: Device management/monitor with ESP23 support
   * Coordinator: Central orchestration with LLM integration
-  * Ollama: Local/Remote LLM model for intent extraction
+  * Ollama: Local/Remote LLM model for intent extraction (users can choose run AI locally or use Ollama API on the web, also users can choose different LLM models like Llama3, gemma3, etc.)
 - Communication: RESTful APIs and WebSocket for real-time updates
 - LLM Integration: Supports both local Ollama and remote API modes
 - Audio Formats: MP3 for web clients, PCM for ESP32 devices
 - Intro: Integrated with ESP32 hardware for audio processing and ESP8266 for environmental monitoring, it supports multi-language commands (English/Chinese) and scene-based automation. Unlike traditional rule-based systems, this framework leverages LLM-powered intent extraction for superior accuracy and user experience while ensuring privacy through complete local processing.
+- Semantic understanding and user intent extraction: Utilising an innovative dual LLM architecture, the first LLM understands user intent and extracts IoT commands, while the second LLM generates natural dialogue after executing the operation. This ensures control accuracy while enabling natural human-machine interaction, allowing users to control home appliances using everyday language.
+- Realtime environmental monitoring: This system continuously monitors indoor air quality, temperature, humidity, and other environmental parameters through a network of sensors and upload data to websocket. Before each AI response, this data is automatically pulled down by the coordinator microservice on the edge server (for example MAC or Jetson) and added to the system prompt to provide context for the response.
 
 Current environment:"""
 
@@ -212,17 +218,44 @@ def get_comprehensive_system_prompt(user_context: Optional[Dict] = None,
     if location and location in ENVIRONMENTAL_DATA["sensors"]:
         prompt += f"\n\nUser is currently in: {location}"
     
-    # 添加用户上下文
+    # ===== 核心修改部分开始 =====
+    # ===== 核心修改部分 =====
     if user_context:
-        prompt += f"\n\nUser context: {json.dumps(user_context, ensure_ascii=False)}"
+        if isinstance(user_context, dict):
+            iot_commands = user_context.get("iot_commands", [])
+            iot_results = user_context.get("iot_results", [])
+            
+            # 再次强调：这是响应阶段，不是意图提取阶段
+            prompt += "\n\n=== RESPONSE CONTEXT ==="
+            prompt += "\n**REMINDER: You are generating a RESPONSE, not extracting intents.**"
+            
+            if iot_commands:
+                prompt += "\n\n**Actions Already Executed by System:**"
+                for i, cmd in enumerate(iot_commands):
+                    device_display = cmd['device'].replace('_', ' ')
+                    prompt += f"\n✓ {cmd['action']} {device_display} in {cmd['location']}"
+                    if cmd.get('parameters'):
+                        for param, value in cmd['parameters'].items():
+                            prompt += f" ({param}: {value})"
+                    
+                    if i < len(iot_results) and iot_results[i]:
+                        if "error" in iot_results[i]:
+                            prompt += f" [Failed: {iot_results[i]['error']}]"
+                        else:
+                            prompt += " [Success]"
+                
+                prompt += "\n\n**Your Task:** Acknowledge these completed actions naturally in your response."
+            else:
+                prompt += "\n\n**No Device Actions Taken** - This is a conversational interaction."
+                prompt += "\n**Your Task:** Respond conversationally as a helpful smart home assistant."
+        else:  
+            prompt += "\n\n**User Context is not in the expected format.**"
+    # ===== 核心修改部分结束 =====
     
     # 添加指导说明
     prompt += "\n\nImportant instructions:"
-    prompt += "\n- You have access to ALL rooms in the house (living_room, bedroom, kitchen, study, bathroom)"
-    prompt += "\n- You can control devices in ANY room, not just the current location"
-    prompt += "\n- When users mention a room, execute commands for that specific room"
-    prompt += "\n- If no room is specified, you can ask which room they mean or use the current location"
-    prompt += "\n- Respond naturally in the language the user uses (English or Chinese)"
+    prompt += "\n- Respond naturally in the language the user uses (English)"
+    prompt += "\n\n**FINAL REMINDER:** Generate a natural RESPONSE to the user. Do NOT output JSON, commands, or intent analysis."
     
     return prompt
 
