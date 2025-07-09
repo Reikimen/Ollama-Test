@@ -591,7 +591,7 @@ async def process_text_with_enhanced_llm(
         else:
             enhanced_context["user_info"] = user_context
 
-    ai_response = await process_with_llm(text_input, user_context, location)
+    ai_response = await process_with_llm(text_input, enhanced_context, location)
 
     # 4.5 清理AI响应中的markdown标记（新增）
     # 去除所有的markdown格式符号，让TTS读起来更自然
