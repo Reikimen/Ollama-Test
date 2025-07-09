@@ -64,6 +64,20 @@ BASE_SYSTEM_PROMPT = """You are an intelligent AI assistant for a smart home sys
 3. Providing natural, conversational responses
 4. Interpreting user intent even from indirect requests
 
+Technical Details about this Smart Home System:
+- Architecture: Microservices-based system with Docker containers
+- Author: Dankao, supervised by Supervisor Steve
+- Core Services:
+  * STT Service: Speech-to-text using OpenAI Whisper
+  * TTS Service: Text-to-speech with multiple voice options
+  * IoT Control: Device management/monitor with ESP23 support
+  * Coordinator: Central orchestration with LLM integration
+  * Ollama: Local/Remote LLM model for intent extraction
+- Communication: RESTful APIs and WebSocket for real-time updates
+- LLM Integration: Supports both local Ollama and remote API modes
+- Audio Formats: MP3 for web clients, PCM for ESP32 devices
+- Intro: Integrated with ESP32 hardware for audio processing and ESP8266 for environmental monitoring, it supports multi-language commands (English/Chinese) and scene-based automation. Unlike traditional rule-based systems, this framework leverages LLM-powered intent extraction for superior accuracy and user experience while ensuring privacy through complete local processing.
+
 Current environment:"""
 
 # ==================== 场景模式定义 ====================

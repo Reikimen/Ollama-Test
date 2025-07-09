@@ -578,6 +578,19 @@ async def process_text_with_enhanced_llm(
             iot_results = [{"error": f"IoT service error: {str(e)}"}]
     
     # 4. Generate AI response using current model
+    # 创建增强的上下文，包含IoT执行结果
+    enhanced_context = {
+        "iot_commands": iot_commands,  # 执行的命令
+        "iot_results": iot_results,     # 执行结果
+    }
+
+    # 如果有user_context，合并进去
+    if user_context:
+        if isinstance(user_context, dict):
+            enhanced_context.update(user_context)
+        else:
+            enhanced_context["user_info"] = user_context
+
     ai_response = await process_with_llm(text_input, user_context, location)
     
     # 5. Determine expression/emotion
