@@ -592,9 +592,17 @@ async def process_text_with_enhanced_llm(
             enhanced_context["user_info"] = user_context
 
     ai_response = await process_with_llm(text_input, user_context, location)
+
+    # 4.5 清理AI响应中的markdown标记（新增）
+    # 去除所有的markdown格式符号，让TTS读起来更自然
+    cleaned_response = ai_response
+    # 去除加粗标记
+    cleaned_response = cleaned_response.replace("**", "")
+    # 去除斜体标记
+    cleaned_response = cleaned_response.replace("*", "")
     
     # 5. Determine expression/emotion
-    expression = determine_expression_enhanced(text_input, ai_response, iot_commands)
+    expression = determine_expression_enhanced(text_input, cleaned_response, iot_commands)
     
     # 6. Generate TTS
     audio_url = None
@@ -607,7 +615,7 @@ async def process_text_with_enhanced_llm(
             # ESP32设备：使用专门的端点
             tts_url = f"http://{TTS_HOST}:{TTS_PORT}/esp32/synthesize"
             tts_payload = {
-                "text": ai_response,
+                "text": cleaned_response,
                 "voice": TTS_VOICE,
                 "format": "pcm"  # ESP32使用PCM格式
             }
@@ -615,7 +623,7 @@ async def process_text_with_enhanced_llm(
                 "X-Device-ID": device_id
             }
             
-            logger.info(f"🔊 Requesting TTS for ESP32 device {device_id}: {ai_response[:50]}...")
+            logger.info(f"🔊 Requesting TTS for ESP32 device {device_id}: {cleaned_response[:50]}...")
             tts_response = requests.post(tts_url, json=tts_payload, headers=headers, timeout=10)
             
             if tts_response.status_code == 200:
@@ -626,12 +634,12 @@ async def process_text_with_enhanced_llm(
             # Web客户端：使用原有端点
             tts_url = f"http://{TTS_HOST}:{TTS_PORT}/synthesize"
             tts_payload = {
-                "text": ai_response,
+                "text": cleaned_response,
                 "voice": TTS_VOICE,
                 "format": "mp3"
             }
             
-            logger.info(f"🔊 Requesting TTS for web client: {ai_response[:50]}...")
+            logger.info(f"🔊 Requesting TTS for web client: {cleaned_response[:50]}...")
             tts_response = requests.post(tts_url, json=tts_payload, timeout=10)
             
             if tts_response.status_code == 200:
@@ -660,7 +668,7 @@ async def process_text_with_enhanced_llm(
     # 构建返回结果
     result = {
         "input_text": text_input,
-        "ai_response": ai_response,
+        "ai_response": cleaned_response,
         "expression": expression,
         "iot_commands": iot_commands,
         "iot_results": iot_results,

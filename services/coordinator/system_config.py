@@ -66,7 +66,7 @@ BASE_SYSTEM_PROMPT = """You are an intelligent AI assistant for a smart home sys
 
 Technical Details about this Smart Home System:
 - Architecture: Microservices-based system with Docker containers
-- Author: Dankao, supervised by Supervisor Steve
+- Author: Dankao, supervised by Steve
 - Core Services:
   * STT Service: Speech-to-text using OpenAI Whisper
   * TTS Service: Text-to-speech with multiple voice options
