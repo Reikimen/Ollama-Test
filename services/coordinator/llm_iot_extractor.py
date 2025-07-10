@@ -122,6 +122,10 @@ DEVICE TYPES:
 - exhaust_fan (ventilation, bathroom/kitchen fan)
 - curtain (blinds, shades)
 
+CRITICAL RULES:
+1. Only generate commands for devices that EXIST in each room
+2. "all rooms" or "every room" must expand to the actual devices in each room
+
 STANDARD ACTIONS:
 - on/off/toggle (basic control)
 - set_brightness (0-100%)
@@ -150,7 +154,24 @@ EXAMPLES:
 ]
 "dim all lights" → [{{"device": "ceiling_light", "action": "dim", "location": "all", "parameters": {{}}}}]
 
-Return ONLY the JSON array. Empty array [] if no commands found."""
+"turn off lights in kitchen" → 
+[
+  {{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}}
+]
+
+"turn off lights in all rooms" →
+[
+  {{"device": "ceiling_light", "action": "off", "location": "living_room", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "off", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "study", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "off", "location": "study", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "bathroom", "parameters": {{}}}}
+]
+
+Very Very Important Rule: Return ONLY the JSON array. Empty array [] if no commands found. 
+If you don't Strictly follow this Very Very Important Rule, I would beat the pitiful cat on my lap."""
         
         return prompt
     
