@@ -1,73 +1,14 @@
-# llm_iot_extractor.py
-# Enhanced IoT command extraction with improved semantic understanding
-
+import os
+import re
 import json
 import logging
 import requests
 from typing import List, Dict, Any, Optional
-import re
 
-# Configure logger
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class LLMIoTExtractor:
-    """Enhanced LLM-based IoT command extractor with universal command format"""
-    
-    # Universal Command Format Definition
-    COMMAND_SCHEMA = {
-        "device": str,      # Device type identifier
-        "action": str,      # Action to perform
-        "location": str,    # Target room/location
-        "parameters": dict  # Optional parameters based on action
-    }
-    
-    # Standardized device types
-    DEVICE_TYPES = {
-        "ceiling_light": ["ceiling light", "ceiling lights", "main light", "overhead light", "light", "lights"],
-        "desk_lamp": ["desk lamp", "table lamp", "reading lamp", "lamp"],
-        "ac": ["air conditioner", "air conditioning", "AC", "cooling", "heating"],
-        "fan": ["fan", "ceiling fan", "room fan"],
-        "exhaust_fan": ["exhaust fan", "ventilation fan", "bathroom fan", "kitchen fan"],
-        "curtain": ["curtain", "curtains", "blinds", "shades", "window covering"]
-    }
-    
-    # Standardized actions with parameter requirements
-    ACTION_DEFINITIONS = {
-        "on": {"parameters": []},
-        "off": {"parameters": []},
-        "toggle": {"parameters": []},
-        "set_brightness": {"parameters": ["brightness"], "range": [0, 100]},
-        "set_temperature": {"parameters": ["temperature"], "range": [16, 32]},
-        "set_speed": {"parameters": ["speed"], "range": [1, 5]},
-        "set_position": {"parameters": ["position"], "range": [0, 100]},
-        "set_color_temp": {"parameters": ["color_temp"], "range": [2700, 6500]},
-        "brighten": {"parameters": [], "implicit_brightness": "+20"},
-        "dim": {"parameters": [], "implicit_brightness": "-20"}
-    }
-    
-    # Room name standardization
-    ROOM_MAPPINGS = {
-        "living room": "living_room",
-        "livingroom": "living_room",
-        "lounge": "living_room",
-        "bedroom": "bedroom",
-        "bed room": "bedroom",
-        "master bedroom": "bedroom",
-        "kitchen": "kitchen",
-        "cooking area": "kitchen",
-        "study": "study",
-        "office": "study",
-        "study room": "study",
-        "bathroom": "bathroom",
-        "bath room": "bathroom",
-        "restroom": "bathroom",
-        "washroom": "bathroom",
-        "all": "all",
-        "everywhere": "all",
-        "entire house": "all",
-        "whole house": "all"
-    }
+    """Enhanced LLM-based IoT command extractor with comprehensive prompt engineering"""
     
     def __init__(self, ollama_endpoint: str, model_name: str, api_headers: dict = None):
         self.ollama_endpoint = ollama_endpoint
@@ -76,6 +17,22 @@ class LLMIoTExtractor:
         
     def extract_iot_commands_with_llm(self, text_input: str, location: str = "living_room") -> List[Dict[str, Any]]:
         """Extract IoT commands using enhanced LLM understanding"""
+        
+        # Quick check for non-IoT queries
+        lower_text = text_input.lower()
+        excluded_patterns = [
+            "who created", "who made", "who are the creators",
+            "better than alexa", "smarter than google", "vs siri",
+            "how do you work", "how does", "why can you",
+            "without internet", "your advantage", "architecture",
+            "hello", "hi", "good morning", "good night",
+            "weather", "time", "date", "news",
+            "thank you", "thanks", "good job", "that's wrong"
+        ]
+        
+        if any(pattern in lower_text for pattern in excluded_patterns):
+            logger.info(f"Detected non-IoT query, skipping extraction: {text_input[:50]}...")
+            return []
         
         # Build comprehensive extraction prompt
         extraction_prompt = self._build_extraction_prompt(text_input, location)
@@ -107,20 +64,12 @@ class LLMIoTExtractor:
 USER INPUT: "{text_input}"
 DEFAULT ROOM: {default_location}
 
-INSTRUCTIONS:
-1. Extract commands for ALL devices mentioned
-2. Support compound commands (e.g., "turn on kitchen lights and bedroom fan")
-3. If no room specified, use the default room
-4. Recognize room names in various forms (living room = living_room)
-5. Handle numeric values in any format (25°, 25 degrees, twenty-five)
-
-DEVICE TYPES:
-- ceiling_light (main lights, overhead lights)
-- desk_lamp (table lamp, reading lamp)
-- ac (air conditioner, AC, cooling)
-- fan (ceiling fan, room fan)
-- exhaust_fan (ventilation, bathroom/kitchen fan)
-- curtain (blinds, shades)
+CRITICAL INSTRUCTIONS:
+1. Be VERY tolerant of typos and misspellings (e.g., "urn" → "turn", "oof" → "off")
+2. Handle polite/conversational language (e.g., "Could you please", "I'd like", "Can you")
+3. Understand context words: "in here" = current room, "everywhere" = all rooms
+4. Extract commands even from explanatory sentences
+5. Support various numeric formats and descriptive values
 
 IMPORTANT: DO NOT extract commands from these types of inputs:
 - Questions about the system: "who created this", "who made this project", "who are the creators"
@@ -130,33 +79,57 @@ IMPORTANT: DO NOT extract commands from these types of inputs:
 - General conversation: greetings, weather, news, time
 - Feedback: "good job", "that's wrong", "thank you"
 
-STANDARD ACTIONS:
-- on/off/toggle (basic control)
-- set_brightness (0-100%)
-- set_temperature (16-32°C)
-- set_speed (1-5)
-- set_position (0-100% for curtains)
-- set_color_temp (2700-6500K)
-- brighten/dim (increase/decrease by 20%)
+DEVICE MAPPING (recognize ALL variations):
+- ceiling_light: lights, light, lamp, lighting, main lights, overhead lights, room lights
+- desk_lamp: desk light, table lamp, reading lamp, side lamp, work lamp
+- fan: ceiling fan, room fan, fan, cooling fan, ventilation
+- exhaust_fan: exhaust, ventilation fan, bathroom fan, kitchen fan, vent
+- ac: air conditioner, AC, aircon, cooling, air conditioning
+- curtain: curtains, blinds, shades, window covering
 
-OUTPUT FORMAT (JSON array only, no other text):
+ROOM MAPPING (handle variations):
+- living_room: living room, lounge, main room, front room, sitting room
+- bedroom: bed room, sleeping room, master bedroom
+- kitchen: cooking area, kitchen area
+- study: office, study room, work room, workspace
+- bathroom: bath room, restroom, washroom, toilet
+- Special: "here" = {default_location}, "everywhere"/"all"/"whole home"/"house" = all rooms
+
+ACTION MAPPING (with ALL variations):
+- on: turn on, switch on, enable, activate, start, power on, put on
+- off: turn off, switch off, disable, deactivate, stop, power off, shut off
+- set_brightness: dim, brighten, set brightness, adjust brightness, % brightness, percent
+- set_temperature: set temp, temperature, degrees, celsius
+- set_speed: speed, fan speed, level, fast, slow, medium, maximum, minimum
+- set_position: open, close, position
+- brighten: brighter, increase brightness, more light, too dark
+- dim: dimmer, decrease brightness, less light, too bright, lower
+
+NUMERIC VALUE PATTERNS:
+- Brightness: X%, X percent, half (50%), quarter (25%), full (100%), maximum (100%), minimum (10%)
+- Speed: 1-5, slow (1), medium (3), fast (4), maximum/max (5), minimum/min (1)
+- Temperature: X degrees, X°, X celsius, just X as number
+- Position: X%, fully open (100%), fully closed (0%), half/halfway (50%)
+
+COMPREHENSIVE EXAMPLES:
+
+"Could you please turn on the lights in here?" → 
+[{{"device": "ceiling_light", "action": "on", "location": "{default_location}", "parameters": {{}}}}]
+
+"I need the living room fan on, it's getting warm." → 
+[{{"device": "fan", "action": "on", "location": "living_room", "parameters": {{}}}}]
+
+"Turn oof the living room lights" (typo: oof) → 
+[{{"device": "ceiling_light", "action": "off", "location": "living_room", "parameters": {{}}}}]
+
+"urn on the living room lights" (typo: urn) → 
+[{{"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {{}}}}]
+
+"Can you dim the bedroom lights a bit? They're too bright." → 
+[{{"device": "ceiling_light", "action": "dim", "location": "bedroom", "parameters": {{}}}}]
+
+"Please turn off all the lights in the house." → 
 [
-  {{
-    "device": "device_type",
-    "action": "action_name",
-    "location": "room_name",
-    "parameters": {{"param": value}}
-  }}
-]
-
-EXAMPLES:
-"Who are the creators of this project?" → []
-"What makes you smarter than Alexa?" → []
-"Can you work without internet?" → []
-
-"turn on lights" → [{{"device": "ceiling_light", "action": "on", "location": "{default_location}", "parameters": {{}}}}]
-
-"Turn off all lights in the home" → [
   {{"device": "ceiling_light", "action": "off", "location": "living_room", "parameters": {{}}}},
   {{"device": "ceiling_light", "action": "off", "location": "bedroom", "parameters": {{}}}},
   {{"device": "desk_lamp", "action": "off", "location": "bedroom", "parameters": {{}}}},
@@ -166,16 +139,97 @@ EXAMPLES:
   {{"device": "ceiling_light", "action": "off", "location": "bathroom", "parameters": {{}}}}
 ]
 
-"set bedroom AC to 25 degrees" → [{{"device": "ac", "action": "set_temperature", "location": "bedroom", "parameters": {{"temperature": 25}}}}]
+"Set the kitchen fan to speed 3, there's a lot of smoke." → 
+[{{"device": "exhaust_fan", "action": "set_speed", "location": "kitchen", "parameters": {{"speed": 3}}}}]
 
-"open kitchen curtains and turn on exhaust fan" → [
-  {{"device": "curtain", "action": "set_position", "location": "kitchen", "parameters": {{"position": 100}}}},
-  {{"device": "exhaust_fan", "action": "on", "location": "kitchen", "parameters": {{}}}}
+"The study is too dark, can you make the lights brighter?" → 
+[{{"device": "ceiling_light", "action": "brighten", "location": "study", "parameters": {{}}}}]
+
+"Turn on the bathroom exhaust fan, it's getting steamy." → 
+[{{"device": "exhaust_fan", "action": "on", "location": "bathroom", "parameters": {{}}}}]
+
+"I'd like the bedroom lights at about 40 percent brightness." → 
+[{{"device": "ceiling_light", "action": "set_brightness", "location": "bedroom", "parameters": {{"brightness": 40}}}}]
+
+"It's getting cool now, turn off all the fans please." → 
+[
+  {{"device": "fan", "action": "off", "location": "living_room", "parameters": {{}}}},
+  {{"device": "fan", "action": "off", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "fan", "action": "off", "location": "study", "parameters": {{}}}}
 ]
 
-"dim all lights" → [{{"device": "ceiling_light", "action": "dim", "location": "all", "parameters": {{}}}}]
+"Can you put the fan on maximum speed? It's really hot." → 
+[{{"device": "fan", "action": "set_speed", "location": "{default_location}", "parameters": {{"speed": 5}}}}]
 
-Return ONLY the JSON array. Empty array [] if no commands found."""
+"I need lights on everywhere, I'm looking for something." → 
+[
+  {{"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bathroom", "parameters": {{}}}}
+]
+
+"Please turn on both the lights and fan in the living room." → 
+[
+  {{"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {{}}}},
+  {{"device": "fan", "action": "on", "location": "living_room", "parameters": {{}}}}
+]
+
+"That's too bright, can you set it to half brightness?" → 
+[{{"device": "ceiling_light", "action": "set_brightness", "location": "{default_location}", "parameters": {{"brightness": 50}}}}]
+
+"We're done cooking, turn off the kitchen lights." → 
+[{{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}}]
+
+"Put the bedroom fan on slow speed for sleeping." → 
+[{{"device": "fan", "action": "set_speed", "location": "bedroom", "parameters": {{"speed": 1}}}}]
+
+"Turn on all lights" (no location specified) → 
+[
+  {{"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bathroom", "parameters": {{}}}}
+]
+
+"Lights and fan off" (minimal input) → 
+[
+  {{"device": "ceiling_light", "action": "off", "location": "{default_location}", "parameters": {{}}}},
+  {{"device": "fan", "action": "off", "location": "{default_location}", "parameters": {{}}}}
+]
+
+"Make it brighter here" → 
+[{{"device": "ceiling_light", "action": "brighten", "location": "{default_location}", "parameters": {{}}}}]
+
+"Too hot, fan please" → 
+[{{"device": "fan", "action": "on", "location": "{default_location}", "parameters": {{}}}}]
+
+"Lights everywhere please" → 
+[
+  {{"device": "ceiling_light", "action": "on", "location": "living_room", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "kitchen", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "on", "location": "study", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "on", "location": "bathroom", "parameters": {{}}}}
+]
+
+"Hello, how are you?" → []
+"What's the weather?" → []
+"Thank you!" → []
+"Who created this system?" → []
+"Are you better than Alexa?" → []
+"How does this work?" → []
+
+OUTPUT FORMAT (JSON array only, no explanations):
+Return ONLY a JSON array. Empty array [] if no IoT commands found."""
         
         return prompt
     
@@ -186,7 +240,10 @@ Return ONLY the JSON array. Empty array [] if no commands found."""
             payload = {
                 "model": self.model_name,
                 "messages": [
-                    {"role": "system", "content": "You are a precise IoT command parser. Output only valid JSON arrays."},
+                    {
+                        "role": "system", 
+                        "content": "You are a precise IoT command parser. Output only valid JSON arrays. Be very tolerant of typos and conversational language. Do NOT extract commands from questions about the system, comparisons with other assistants, or general conversation."
+                    },
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.2,  # Lower temperature for more consistent parsing
@@ -256,210 +313,154 @@ Return ONLY the JSON array. Empty array [] if no commands found."""
             if isinstance(commands, list):
                 return commands
             else:
-                logger.error(f"LLM returned non-list: {type(commands)}")
+                logger.warning(f"LLM returned non-list: {type(commands)}")
                 return []
                 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.error(f"Failed to parse LLM response: {e}")
             logger.debug(f"Raw response: {response}")
             return []
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {str(e)}")
+            logger.error(f"Unexpected error parsing response: {e}")
             return []
     
-    def _validate_and_normalize_commands(self, commands: List[Dict], 
-                                        original_text: str, 
-                                        default_location: str) -> List[Dict[str, Any]]:
+    def _validate_and_normalize_commands(self, commands: List[Dict[str, Any]], 
+                                       original_text: str, 
+                                       default_location: str) -> List[Dict[str, Any]]:
         """Validate and normalize extracted commands"""
         
-        validated_commands = []
+        valid_devices = {"ceiling_light", "desk_lamp", "fan", "exhaust_fan", "ac", "curtain"}
+        valid_actions = {"on", "off", "toggle", "set_brightness", "set_temperature", 
+                        "set_speed", "set_position", "set_color_temp", "brighten", "dim"}
+        valid_locations = {"living_room", "bedroom", "kitchen", "study", "bathroom", "all"}
+        
+        normalized_commands = []
         
         for cmd in commands:
-            if not isinstance(cmd, dict):
-                continue
+            try:
+                # Validate required fields
+                device = cmd.get("device", "").lower().strip()
+                action = cmd.get("action", "").lower().strip()
+                location = cmd.get("location", default_location).lower().strip()
+                parameters = cmd.get("parameters", {})
                 
-            # Extract and validate fields
-            device = cmd.get("device", "").lower()
-            action = cmd.get("action", "").lower()
-            location = cmd.get("location", default_location).lower()
-            parameters = cmd.get("parameters", {})
-            
-            # Skip if missing required fields
-            if not device or not action:
-                continue
-            
-            # Normalize device type
-            normalized_device = self._normalize_device_type(device)
-            if not normalized_device:
-                continue
+                # Skip invalid commands
+                if not device or not action:
+                    continue
                 
-            # Normalize action
-            normalized_action = self._normalize_action(action, normalized_device)
-            if not normalized_action:
-                continue
+                # Normalize device names
+                if device not in valid_devices:
+                    logger.warning(f"Unknown device: {device}")
+                    continue
                 
-            # Normalize location
-            normalized_location = self._normalize_location(location)
-            
-            # Validate and normalize parameters
-            validated_params = self._validate_parameters(
-                normalized_action, 
-                parameters, 
-                original_text
-            )
-            
-            # Build validated command
-            validated_cmd = {
-                "device": normalized_device,
-                "action": normalized_action,
-                "location": normalized_location,
-                "parameters": validated_params
-            }
-            
-            validated_commands.append(validated_cmd)
+                # Normalize actions
+                if action not in valid_actions:
+                    logger.warning(f"Unknown action: {action}")
+                    continue
+                
+                # Normalize locations
+                if location not in valid_locations:
+                    # Try to fix common variations
+                    location = location.replace(" ", "_")
+                    if location not in valid_locations:
+                        location = default_location
+                
+                # Handle "all" location by expanding to all rooms
+                if location == "all":
+                    # Determine which rooms have this device
+                    rooms_with_device = self._get_rooms_with_device(device)
+                    for room in rooms_with_device:
+                        normalized_commands.append({
+                            "device": device,
+                            "action": action,
+                            "location": room,
+                            "parameters": parameters.copy()
+                        })
+                else:
+                    # Validate and normalize parameters
+                    normalized_params = self._normalize_parameters(action, parameters, original_text)
+                    
+                    normalized_commands.append({
+                        "device": device,
+                        "action": action,
+                        "location": location,
+                        "parameters": normalized_params
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error normalizing command: {e}")
+                continue
         
-        return validated_commands
+        return normalized_commands
     
-    def _normalize_device_type(self, device: str) -> Optional[str]:
-        """Normalize device type to standard format"""
-        
-        device = device.lower().strip()
-        
-        # Direct match
-        if device in self.DEVICE_TYPES:
-            return device
-            
-        # Check aliases
-        for standard_device, aliases in self.DEVICE_TYPES.items():
-            if device in [alias.lower() for alias in aliases]:
-                return standard_device
-                
-        # Partial matching for common variations
-        if "light" in device and "desk" not in device:
-            return "ceiling_light"
-        elif "lamp" in device:
-            return "desk_lamp"
-        elif "ac" in device or "air" in device:
-            return "ac"
-        elif "exhaust" in device or "ventilation" in device:
-            return "exhaust_fan"
-        elif "fan" in device and "exhaust" not in device:
-            return "fan"
-        elif "curtain" in device or "blind" in device:
-            return "curtain"
-            
-        return None
-    
-    def _normalize_action(self, action: str, device: str) -> Optional[str]:
-        """Normalize action to standard format"""
-        
-        action = action.lower().strip()
-        
-        # Direct match
-        if action in self.ACTION_DEFINITIONS:
-            return action
-            
-        # Common variations
-        action_mappings = {
-            "turn on": "on",
-            "switch on": "on",
-            "activate": "on",
-            "turn off": "off",
-            "switch off": "off",
-            "deactivate": "off",
-            "increase": "brighten" if device in ["ceiling_light", "desk_lamp"] else None,
-            "decrease": "dim" if device in ["ceiling_light", "desk_lamp"] else None,
-            "open": "set_position" if device == "curtain" else "on",
-            "close": "set_position" if device == "curtain" else "off",
+    def _get_rooms_with_device(self, device: str) -> List[str]:
+        """Get list of rooms that have a specific device type"""
+        # This matches the actual device configuration from IoT service
+        device_room_mapping = {
+            "ceiling_light": ["living_room", "bedroom", "kitchen", "study", "bathroom"],
+            "desk_lamp": ["bedroom", "study"],
+            "fan": ["living_room", "bedroom", "study"],
+            "exhaust_fan": ["kitchen", "bathroom"],
+            "ac": ["living_room", "bedroom"],
+            "curtain": ["living_room", "bedroom", "study"]
         }
         
-        normalized = action_mappings.get(action)
-        if normalized:
-            return normalized
-            
-        # Check if action contains key phrases
-        if "brightness" in action or "bright" in action:
-            return "set_brightness"
-        elif "temperature" in action or "temp" in action:
-            return "set_temperature"
-        elif "speed" in action:
-            return "set_speed"
-        elif "position" in action:
-            return "set_position"
-            
-        return None
+        return device_room_mapping.get(device, ["living_room"])
     
-    def _normalize_location(self, location: str) -> str:
-        """Normalize room location"""
+    def _normalize_parameters(self, action: str, parameters: Dict[str, Any], 
+                            original_text: str) -> Dict[str, Any]:
+        """Normalize parameters based on action type"""
         
-        location = location.lower().strip()
+        normalized = {}
         
-        # Check room mappings
-        return self.ROOM_MAPPINGS.get(location, location)
+        if action == "set_brightness" and "brightness" in parameters:
+            # Ensure brightness is between 0-100
+            brightness = parameters["brightness"]
+            if isinstance(brightness, (int, float)):
+                normalized["brightness"] = max(0, min(100, int(brightness)))
+                
+        elif action == "set_temperature" and "temperature" in parameters:
+            # Ensure temperature is between 16-32
+            temp = parameters["temperature"]
+            if isinstance(temp, (int, float)):
+                normalized["temperature"] = max(16, min(32, int(temp)))
+                
+        elif action == "set_speed" and "speed" in parameters:
+            # Ensure speed is between 1-5
+            speed = parameters["speed"]
+            if isinstance(speed, (int, float)):
+                normalized["speed"] = max(1, min(5, int(speed)))
+                
+        elif action == "set_position" and "position" in parameters:
+            # Ensure position is between 0-100
+            position = parameters["position"]
+            if isinstance(position, (int, float)):
+                normalized["position"] = max(0, min(100, int(position)))
+                
+        elif action == "set_color_temp" and "color_temp" in parameters:
+            # Ensure color temp is between 2700-6500
+            color_temp = parameters["color_temp"]
+            if isinstance(color_temp, (int, float)):
+                normalized["color_temp"] = max(2700, min(6500, int(color_temp)))
+        
+        # For brighten/dim actions, no parameters needed
+        elif action in ["brighten", "dim"]:
+            normalized = {}
+        
+        # Try to extract missing parameters from original text if needed
+        if not normalized and action in ["set_brightness", "set_temperature", "set_speed"]:
+            extracted_value = self._extract_value_from_text(original_text, action.replace("set_", ""))
+            if extracted_value is not None:
+                param_name = action.replace("set_", "")
+                normalized[param_name] = extracted_value
+        
+        return normalized
     
-    def _validate_parameters(self, action: str, parameters: Dict, original_text: str) -> Dict:
-        """Validate and extract parameters based on action requirements"""
+    def _extract_value_from_text(self, text: str, param_type: str) -> Optional[int]:
+        """Extract numeric value from text for specific parameter type"""
+        text_lower = text.lower()
         
-        validated_params = {}
-        
-        # Get action definition
-        action_def = self.ACTION_DEFINITIONS.get(action, {})
-        required_params = action_def.get("parameters", [])
-        
-        # Handle implicit parameters
-        if action == "brighten":
-            # Brightness increases by 20%
-            return {}
-        elif action == "dim":
-            # Brightness decreases by 20%
-            return {}
-        elif action == "set_position" and "curtain" in original_text.lower():
-            # Handle curtain position keywords
-            if "open" in original_text.lower() or "fully open" in original_text.lower():
-                validated_params["position"] = 100
-            elif "close" in original_text.lower() or "fully close" in original_text.lower():
-                validated_params["position"] = 0
-            elif "halfway" in original_text.lower() or "half" in original_text.lower():
-                validated_params["position"] = 50
-        
-        # Extract parameters from the original text if not in command
-        for param in required_params:
-            if param in parameters:
-                # Validate range if applicable
-                value = parameters[param]
-                if param in ["temperature", "brightness", "speed", "position"]:
-                    value = self._extract_numeric_value(param, original_text.lower()) or value
-                    validated_params[param] = self._validate_range(
-                        value,
-                        action_def.get("range", [0, 100])[0],
-                        action_def.get("range", [0, 100])[1]
-                    )
-                else:
-                    validated_params[param] = value
-            else:
-                # Try to extract from original text
-                extracted_value = self._extract_numeric_value(param, original_text.lower())
-                if extracted_value is not None:
-                    validated_params[param] = self._validate_range(
-                        extracted_value,
-                        action_def.get("range", [0, 100])[0],
-                        action_def.get("range", [0, 100])[1]
-                    )
-        
-        return validated_params
-    
-    def _validate_range(self, value: Any, min_val: int, max_val: int) -> int:
-        """Ensure value is within valid range"""
-        try:
-            num_value = int(float(str(value)))
-            return max(min_val, min(num_value, max_val))
-        except:
-            return min_val
-    
-    def _extract_numeric_value(self, param: str, text_lower: str) -> Optional[int]:
-        """Extract numeric value for a parameter from text"""
-        
-        if param == "temperature":
+        if param_type == "temperature":
             # Look for temperature patterns
             temp_patterns = [
                 r'(\d+)\s*(?:degree|°|celsius|c)',
@@ -472,7 +473,7 @@ Return ONLY the JSON array. Empty array [] if no commands found."""
                 if match:
                     return self._validate_range(match.group(1), 16, 32)
                     
-        elif param == "brightness":
+        elif param_type == "brightness":
             # Look for brightness patterns
             bright_patterns = [
                 r'(\d+)\s*(?:%|percent)',
@@ -484,7 +485,7 @@ Return ONLY the JSON array. Empty array [] if no commands found."""
                 if match:
                     return self._validate_range(match.group(1), 0, 100)
                     
-        elif param == "speed":
+        elif param_type == "speed":
             # Look for speed patterns
             speed_patterns = [
                 r'speed\s*(\d+)',
@@ -498,6 +499,14 @@ Return ONLY the JSON array. Empty array [] if no commands found."""
                     return self._validate_range(match.group(1), 1, 5)
         
         return None
+    
+    def _validate_range(self, value: str, min_val: int, max_val: int) -> int:
+        """Validate and clamp numeric value to range"""
+        try:
+            num_value = int(value)
+            return max(min_val, min(max_val, num_value))
+        except ValueError:
+            return None
 
 # Backward compatibility functions
 def create_llm_extractor(ollama_endpoint: str, model_name: str, api_headers: dict = None):
