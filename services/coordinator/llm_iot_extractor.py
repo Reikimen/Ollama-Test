@@ -124,7 +124,14 @@ DEVICE TYPES:
 
 CRITICAL RULES:
 1. Only generate commands for devices that EXIST in each room
-2. "all rooms" or "every room" must expand to the actual devices in each room
+2. "all rooms", "the home" or "every room" must expand to the actual devices in each room
+3. DO NOT extract commands from:
+   - Questions about the system itself (how it works, who made it, features, etc.)
+   - Comparisons with other systems (Alexa, Google Home, etc.)
+   - Technical questions (architecture, response time, hardware, etc.)
+   - General conversation or greetings
+   - Weather inquiries or time questions
+   - Feedback about the system
 
 STANDARD ACTIONS:
 - on/off/toggle (basic control)
@@ -146,12 +153,19 @@ OUTPUT FORMAT (JSON array only, no other text):
 ]
 
 EXAMPLES:
+"what makes you better than Alexa?" → []
+"who created this system?" → []
+"how do you work?" → []
+
 "turn on lights" → [{{"device": "ceiling_light", "action": "on", "location": "{default_location}", "parameters": {{}}}}]
+
 "set bedroom AC to 25 degrees" → [{{"device": "ac", "action": "set_temperature", "location": "bedroom", "parameters": {{"temperature": 25}}}}]
+
 "open kitchen curtains and turn on exhaust fan" → [
   {{"device": "curtain", "action": "set_position", "location": "kitchen", "parameters": {{"position": 100}}}},
   {{"device": "exhaust_fan", "action": "on", "location": "kitchen", "parameters": {{}}}}
 ]
+
 "dim all lights" → [{{"device": "ceiling_light", "action": "dim", "location": "all", "parameters": {{}}}}]
 
 "turn off lights in kitchen" → 
