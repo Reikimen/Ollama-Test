@@ -3,11 +3,15 @@
 ## System Questions (10 Questions for Visitors)
 
 1. "Who are the creaters of this project?"
-2. "What makes you smarter than Alexa?"
-3. "Why you can understand my intentions?"
+2. "Do you think you are smarter than Alexa? If so, what makes you smarter?"
+3. "Why you can understand my intentions (commands)?"
 4. "How do the system works?"
 5. "Can you work without internet?"
-6. "What's your advantage compare with traditional methods?"
+6. "You said you can work without internet, how about the remote API mode?"
+7. "What's your advantage compare with traditional methods?"
+8. “What's technologies been applied for this project?”
+9. "Tell me something about your hardware."
+10. "What's the framework of this project?"
 
 
 ## Device Control Commands (15 Commands for Lights & Fans)

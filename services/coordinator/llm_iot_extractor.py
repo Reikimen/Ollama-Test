@@ -122,16 +122,13 @@ DEVICE TYPES:
 - exhaust_fan (ventilation, bathroom/kitchen fan)
 - curtain (blinds, shades)
 
-CRITICAL RULES:
-1. Only generate commands for devices that EXIST in each room
-2. "all rooms", "the home" or "every room" must expand to the actual devices in each room
-3. DO NOT extract commands from:
-   - Questions about the system itself (how it works, who made it, features, etc.)
-   - Comparisons with other systems (Alexa, Google Home, etc.)
-   - Technical questions (architecture, response time, hardware, etc.)
-   - General conversation or greetings
-   - Weather inquiries or time questions
-   - Feedback about the system
+IMPORTANT: DO NOT extract commands from these types of inputs:
+- Questions about the system: "who created this", "who made this project", "who are the creators"
+- System comparisons: "what makes you better than Alexa", "smarter than Google", "vs Siri"
+- How it works: "how do you work", "why can you understand", "how does the system work"
+- Technical questions: "can you work without internet", "what's your advantage", "architecture"
+- General conversation: greetings, weather, news, time
+- Feedback: "good job", "that's wrong", "thank you"
 
 STANDARD ACTIONS:
 - on/off/toggle (basic control)
@@ -153,11 +150,21 @@ OUTPUT FORMAT (JSON array only, no other text):
 ]
 
 EXAMPLES:
-"what makes you better than Alexa?" → []
-"who created this system?" → []
-"how do you work?" → []
+"Who are the creators of this project?" → []
+"What makes you smarter than Alexa?" → []
+"Can you work without internet?" → []
 
 "turn on lights" → [{{"device": "ceiling_light", "action": "on", "location": "{default_location}", "parameters": {{}}}}]
+
+"Turn off all lights in the home" → [
+  {{"device": "ceiling_light", "action": "off", "location": "living_room", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "off", "location": "bedroom", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "study", "parameters": {{}}}},
+  {{"device": "desk_lamp", "action": "off", "location": "study", "parameters": {{}}}},
+  {{"device": "ceiling_light", "action": "off", "location": "bathroom", "parameters": {{}}}}
+]
 
 "set bedroom AC to 25 degrees" → [{{"device": "ac", "action": "set_temperature", "location": "bedroom", "parameters": {{"temperature": 25}}}}]
 
@@ -168,24 +175,7 @@ EXAMPLES:
 
 "dim all lights" → [{{"device": "ceiling_light", "action": "dim", "location": "all", "parameters": {{}}}}]
 
-"turn off lights in kitchen" → 
-[
-  {{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}}
-]
-
-"turn off lights in all rooms" →
-[
-  {{"device": "ceiling_light", "action": "off", "location": "living_room", "parameters": {{}}}},
-  {{"device": "ceiling_light", "action": "off", "location": "bedroom", "parameters": {{}}}},
-  {{"device": "desk_lamp", "action": "off", "location": "bedroom", "parameters": {{}}}},
-  {{"device": "ceiling_light", "action": "off", "location": "kitchen", "parameters": {{}}}},
-  {{"device": "ceiling_light", "action": "off", "location": "study", "parameters": {{}}}},
-  {{"device": "desk_lamp", "action": "off", "location": "study", "parameters": {{}}}},
-  {{"device": "ceiling_light", "action": "off", "location": "bathroom", "parameters": {{}}}}
-]
-
-Very Very Important Rule: Return ONLY the JSON array. Empty array [] if no commands found. 
-If you don't Strictly follow this Very Very Important Rule, I would beat the pitiful cat on my lap."""
+Return ONLY the JSON array. Empty array [] if no commands found."""
         
         return prompt
     
@@ -377,95 +367,97 @@ If you don't Strictly follow this Very Very Important Rule, I would beat the pit
             "turn off": "off",
             "switch off": "off",
             "deactivate": "off",
-            "open": "on" if device != "curtain" else "set_position",
-            "close": "off" if device != "curtain" else "set_position",
             "increase": "brighten" if device in ["ceiling_light", "desk_lamp"] else None,
             "decrease": "dim" if device in ["ceiling_light", "desk_lamp"] else None,
-            "brighter": "brighten",
-            "darker": "dim",
-            "faster": "set_speed",
-            "slower": "set_speed",
-            "warmer": "set_temperature",
-            "cooler": "set_temperature"
+            "open": "set_position" if device == "curtain" else "on",
+            "close": "set_position" if device == "curtain" else "off",
         }
         
-        return action_mappings.get(action, action if action in self.ACTION_DEFINITIONS else None)
+        normalized = action_mappings.get(action)
+        if normalized:
+            return normalized
+            
+        # Check if action contains key phrases
+        if "brightness" in action or "bright" in action:
+            return "set_brightness"
+        elif "temperature" in action or "temp" in action:
+            return "set_temperature"
+        elif "speed" in action:
+            return "set_speed"
+        elif "position" in action:
+            return "set_position"
+            
+        return None
     
     def _normalize_location(self, location: str) -> str:
-        """Normalize room/location names"""
+        """Normalize room location"""
         
         location = location.lower().strip()
         
-        # Check direct mapping
-        if location in self.ROOM_MAPPINGS:
-            return self.ROOM_MAPPINGS[location]
-            
-        # Check if already in standard format
-        if location in self.ROOM_MAPPINGS.values():
-            return location
-            
-        # Default to original if no mapping found
-        return location.replace(" ", "_")
+        # Check room mappings
+        return self.ROOM_MAPPINGS.get(location, location)
     
     def _validate_parameters(self, action: str, parameters: Dict, original_text: str) -> Dict:
         """Validate and extract parameters based on action requirements"""
         
-        action_def = self.ACTION_DEFINITIONS.get(action, {})
-        required_params = action_def.get("parameters", [])
         validated_params = {}
         
-        # Handle special cases
-        if action == "set_position" and "curtain" in original_text.lower():
-            # Special handling for curtain positions
+        # Get action definition
+        action_def = self.ACTION_DEFINITIONS.get(action, {})
+        required_params = action_def.get("parameters", [])
+        
+        # Handle implicit parameters
+        if action == "brighten":
+            # Brightness increases by 20%
+            return {}
+        elif action == "dim":
+            # Brightness decreases by 20%
+            return {}
+        elif action == "set_position" and "curtain" in original_text.lower():
+            # Handle curtain position keywords
             if "open" in original_text.lower() or "fully open" in original_text.lower():
                 validated_params["position"] = 100
             elif "close" in original_text.lower() or "fully close" in original_text.lower():
                 validated_params["position"] = 0
-            elif "half" in original_text.lower() or "halfway" in original_text.lower():
+            elif "halfway" in original_text.lower() or "half" in original_text.lower():
                 validated_params["position"] = 50
-            elif "position" in parameters:
-                validated_params["position"] = self._validate_range(
-                    parameters["position"], 0, 100
-                )
         
-        # Process each required parameter
+        # Extract parameters from the original text if not in command
         for param in required_params:
             if param in parameters:
+                # Validate range if applicable
                 value = parameters[param]
-                
-                # Validate based on parameter type
-                if param == "brightness":
-                    validated_params[param] = self._validate_range(value, 0, 100)
-                elif param == "temperature":
-                    validated_params[param] = self._validate_range(value, 16, 32)
-                elif param == "speed":
-                    validated_params[param] = self._validate_range(value, 1, 5)
-                elif param == "position":
-                    validated_params[param] = self._validate_range(value, 0, 100)
-                elif param == "color_temp":
-                    validated_params[param] = self._validate_range(value, 2700, 6500)
+                if param in ["temperature", "brightness", "speed", "position"]:
+                    value = self._extract_numeric_value(param, original_text.lower()) or value
+                    validated_params[param] = self._validate_range(
+                        value,
+                        action_def.get("range", [0, 100])[0],
+                        action_def.get("range", [0, 100])[1]
+                    )
                 else:
                     validated_params[param] = value
             else:
-                # Try to extract from original text if not in parameters
-                extracted_value = self._extract_parameter_from_text(param, original_text)
+                # Try to extract from original text
+                extracted_value = self._extract_numeric_value(param, original_text.lower())
                 if extracted_value is not None:
-                    validated_params[param] = extracted_value
+                    validated_params[param] = self._validate_range(
+                        extracted_value,
+                        action_def.get("range", [0, 100])[0],
+                        action_def.get("range", [0, 100])[1]
+                    )
         
         return validated_params
     
     def _validate_range(self, value: Any, min_val: int, max_val: int) -> int:
-        """Validate and clamp numeric values to acceptable range"""
+        """Ensure value is within valid range"""
         try:
             num_value = int(float(str(value)))
-            return max(min_val, min(max_val, num_value))
-        except (ValueError, TypeError):
+            return max(min_val, min(num_value, max_val))
+        except:
             return min_val
     
-    def _extract_parameter_from_text(self, param: str, text: str) -> Optional[int]:
-        """Extract numeric parameters from original text"""
-        
-        text_lower = text.lower()
+    def _extract_numeric_value(self, param: str, text_lower: str) -> Optional[int]:
+        """Extract numeric value for a parameter from text"""
         
         if param == "temperature":
             # Look for temperature patterns
