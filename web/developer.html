@@ -1196,17 +1196,35 @@
         // Load test prompts
         function loadTestPrompts() {
             const testPrompts = [
-                "Turn on the living room lights",
-                "Set the bedroom temperature to 24 degrees",
-                "Execute sleep mode",
-                "What's the current temperature in the kitchen?",
-                "Turn off all lights in the house",
-                "Open the curtains halfway in the study",
-                "Start the exhaust fan in the bathroom for 30 minutes",
-                "Activate movie mode in the living room",
-                "Switch to a different AI model",  // 🔧 新增
-                "Test the current model performance"  // 🔧 新增
-            ];
+            // System Questions (10 Questions for Visitors)
+            "Who are the creators of this project?",
+            "Do you think you are smarter than Alexa? If so, what makes you smarter?",
+            "Why you can understand my intentions (commands)?",
+            "How do the system works?",
+            "Can you work without internet?",
+            "You said you can work without internet, how about the remote API mode?",
+            "What's your advantage compare with traditional methods?",
+            "What's technologies been applied for this project?",
+            "Tell me something about your hardware.",
+            "What's the framework of this project?",
+            
+            // Device Control Commands (15 Commands for Lights & Fans)
+            "Turn on the lights all over the house",
+            "Turn living room fan on",
+            "Dim bedroom lights to 20%",
+            "Whole home All lights off",
+            "Set Kitchen fan speed 3",
+            "Brighten study lights to maximum",
+            "Bathroom exhaust on",
+            "Bedroom all lights 40%",
+            "Turn off all fans in the home",
+            "Maximum fan speed at the living room",
+            "Lights on everywhere",
+            "Living room lights and fan off",
+            "Half brightness please",
+            "Kitchen lights off",
+            "Bedroom fan slow"
+        ];
             
             const randomPrompt = testPrompts[Math.floor(Math.random() * testPrompts.length)];
             document.getElementById('user-input').value = randomPrompt;
