@@ -262,7 +262,7 @@ class EnhancedModelManager:
         try:
             if self.current_mode == APIMode.REMOTE_API:
                 # API模式：返回预定义的模型列表
-                self.available_models = ["llama3.2:3b", "llama3.1:70b", "gemma2:latest", "gemma3:latest"]
+                self.available_models = ["llama3.2:3b", "llama3.1:70b", "gemma2:latest", "gemma3:latest","llama3:8b"]
                 
                 # 设置模型信息
                 for model in self.available_models:
