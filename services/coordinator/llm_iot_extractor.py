@@ -23,11 +23,13 @@ class LLMIoTExtractor:
         excluded_patterns = [
             "who created", "who made", "who are the creators",
             "better than alexa", "smarter than google", "vs siri",
-            "how do you work", "how does", "why can you",
+            "how do you work", "how does", "how do the", "why can you",
+            "how the system", "how this work", "how it work",
             "without internet", "your advantage", "architecture",
             "hello", "hi", "good morning", "good night",
             "weather", "time", "date", "news",
-            "thank you", "thanks", "good job", "that's wrong"
+            "thank you", "thanks", "good job", "that's wrong",
+            "what is", "what are", "explain", "tell me about"
         ]
         
         if any(pattern in lower_text for pattern in excluded_patterns):
@@ -44,6 +46,12 @@ class LLMIoTExtractor:
             # Parse and validate commands
             commands = self._parse_llm_response(llm_response)
             
+            # Additional safety check: if the input looks like a question about the system,
+            # but LLM still extracted commands, reject them
+            if commands and self._is_system_question(text_input):
+                logger.warning(f"LLM extracted commands from apparent system question, rejecting: {text_input}")
+                return []
+            
             # Post-process commands for consistency
             validated_commands = self._validate_and_normalize_commands(commands, text_input, location)
             
@@ -55,6 +63,26 @@ class LLMIoTExtractor:
         except Exception as e:
             logger.error(f"Error in LLM IoT extraction: {str(e)}")
             return []
+    
+    def _is_system_question(self, text: str) -> bool:
+        """Check if the text is likely a question about the system rather than a command"""
+        lower_text = text.lower().strip()
+        
+        # Check for question patterns about the system
+        system_question_patterns = [
+            r"^(how|what|why|who|when|where)\s+(do|does|is|are|can|could)",
+            r"(explain|tell me|describe)\s+(how|what|about)",
+            r"(work|function|operate)s?\?",
+            r"(system|this|project)\s+(work|function)",
+            r"(creator|created|made|built)\s+(this|the system)",
+            r"(better|different|compare|versus)\s+(than|to|with)",
+        ]
+        
+        for pattern in system_question_patterns:
+            if re.search(pattern, lower_text):
+                return True
+        
+        return False
     
     def _build_extraction_prompt(self, text_input: str, default_location: str) -> str:
         """Build a comprehensive prompt for accurate command extraction"""
@@ -74,10 +102,13 @@ CRITICAL INSTRUCTIONS:
 IMPORTANT: DO NOT extract commands from these types of inputs:
 - Questions about the system: "who created this", "who made this project", "who are the creators"
 - System comparisons: "what makes you better than Alexa", "smarter than Google", "vs Siri"
-- How it works: "how do you work", "why can you understand", "how does the system work"
+- How it works: "how do you work", "how does the system work", "how do the system works", "why can you understand", "how does this work", "explain how"
 - Technical questions: "can you work without internet", "what's your advantage", "architecture"
-- General conversation: greetings, weather, news, time
+- General conversation: greetings, weather, news, time, general questions
 - Feedback: "good job", "that's wrong", "thank you"
+- Explanations: "what is", "tell me about", "explain"
+
+CRITICAL: If the user is asking ABOUT the system rather than giving a command TO control devices, return an empty array [].
 
 DEVICE MAPPING (recognize ALL variations):
 - ceiling_light: lights, light, lamp, lighting, main lights, overhead lights, room lights
@@ -227,6 +258,12 @@ COMPREHENSIVE EXAMPLES:
 "Who created this system?" → []
 "Are you better than Alexa?" → []
 "How does this work?" → []
+"How do the system works?" → []
+"Can you explain how this works?" → []
+"What makes you different from Siri?" → []
+"Tell me about yourself" → []
+
+IMPORTANT REMINDER: Only extract IoT device control commands. Questions ABOUT the system should return [].
 
 OUTPUT FORMAT (JSON array only, no explanations):
 Return ONLY a JSON array. Empty array [] if no IoT commands found."""
@@ -242,7 +279,7 @@ Return ONLY a JSON array. Empty array [] if no IoT commands found."""
                 "messages": [
                     {
                         "role": "system", 
-                        "content": "You are a precise IoT command parser. Output only valid JSON arrays. Be very tolerant of typos and conversational language. Do NOT extract commands from questions about the system, comparisons with other assistants, or general conversation."
+                        "content": "You are a precise IoT command parser. Output only valid JSON arrays. Be very tolerant of typos and conversational language. Do NOT extract commands from questions about the system, comparisons with other assistants, or general conversation. NEVER hallucinate or invent commands that are not explicitly stated in the user input. If the user is asking a question ABOUT the system rather than giving a command TO control devices, return an empty array []."
                     },
                     {"role": "user", "content": prompt}
                 ],
