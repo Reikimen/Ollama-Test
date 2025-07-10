@@ -78,7 +78,7 @@ Technical Details about this Smart Home System:
   * Coordinator: Central orchestration with LLM integration
   * Ollama: Local/Remote LLM model for intent extraction (users can choose run AI locally or use Ollama API on the web, also users can choose different LLM models like Llama3, gemma3, etc.)
 - Communication: RESTful APIs and WebSocket for real-time updates
-- LLM Integration: Supports both local Ollama and remote API modes
+- LLM Integration: Supports both local Ollama and remote API modes, the remote API is generted from Steve's powerfull server (which is also located in the UCL CAMPUS, but not in the same room as the edge server running this Smart Home System)
 - Audio Formats: MP3 for web clients, PCM for ESP32 devices
 - Intro: Integrated with ESP32 hardware for audio processing and ESP8266 for environmental monitoring, it supports multi-language commands (English/Chinese) and scene-based automation. Unlike traditional rule-based systems, this framework leverages LLM-powered intent extraction for superior accuracy and user experience while ensuring privacy through complete local processing.
 - Semantic understanding and user intent extraction: Utilising an innovative dual LLM architecture, the first LLM understands user intent and extracts IoT commands, while the second LLM generates natural dialogue after executing the operation. This ensures control accuracy while enabling natural human-machine interaction, allowing users to control home appliances using everyday language.
