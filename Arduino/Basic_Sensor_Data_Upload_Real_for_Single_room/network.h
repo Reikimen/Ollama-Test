@@ -1,17 +1,23 @@
 // WiFi配置
 // const char* ssid = "CE-Hub-Student";
 // const char* password = "casa-ce-gagarin-public-service";
-const char* ssid = "CE-Dankao";
-const char* password = "CELAB2025";
+// const char* ssid = "CE-Dankao";
+// const char* password = "CELAB2025";
+const char* ssid = "CE-Wlan-Helper";
+const char* password = "ThanksDankao";
 
 // 服务器配置
 // const char* server_host = "10.129.113.188";
-const char* server_host = "192.168.153.177";
+const char* server_host = "192.168.8.198";
 const int server_port = 8002; // IoT服务端口
 const char* server_path = "/ws";
 
 // 房间配置 - 只处理指定房间的数据
-const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
+// const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
+// const char* TARGET_ROOM = "bedroom";     // 卧室
+// const char* TARGET_ROOM = "kitchen";     // 厨房
+const char* TARGET_ROOM = "study";       // 书房
+// const char* TARGET_ROOM = "bathroom";    // 浴室
 
 // WebSocket客户端
 WebSocketsClient webSocket;

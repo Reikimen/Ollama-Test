@@ -16,16 +16,20 @@
 #define WS2812_COUNT 60            // WS2812 LED数量
 
 // ===== 网络配置 =====
-const char* ssid = "CE-Dankao";
-const char* password = "CELAB2025";
+// const char* ssid = "CE-Dankao";
+// const char* password = "CELAB2025";
+const char* ssid = "CE-Wlan-Helper";
+const char* password = "ThanksDankao";
 
 // 服务器配置
-const char* server_host = "192.168.153.177";
+// const char* server_host = "192.168.153.177";
+const char* server_host = "192.168.8.198";
 const int server_port = 8002;
 const char* server_path = "/ws";
 
 // 房间配置
 const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
+
 
 // WebSocket客户端
 WebSocketsClient webSocket;
