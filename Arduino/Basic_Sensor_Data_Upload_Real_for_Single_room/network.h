@@ -13,10 +13,10 @@ const int server_port = 8002; // IoT服务端口
 const char* server_path = "/ws";
 
 // 房间配置 - 只处理指定房间的数据
-// const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
+const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
 // const char* TARGET_ROOM = "bedroom";     // 卧室
 // const char* TARGET_ROOM = "kitchen";     // 厨房
-const char* TARGET_ROOM = "study";       // 书房
+// const char* TARGET_ROOM = "study";       // 书房
 // const char* TARGET_ROOM = "bathroom";    // 浴室
 
 // WebSocket客户端

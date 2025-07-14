@@ -13,7 +13,7 @@
 #define DESK_LAMP_PIN 5            // GPIO5 (D1)
 #define FAN_PIN 12                 // GPIO12 (D6)
 #define WS2812_PIN 4               // GPIO4 (D2)
-#define WS2812_COUNT 60            // WS2812 LED数量
+#define WS2812_COUNT 12            // WS2812 LED数量
 
 // ===== 网络配置 =====
 // const char* ssid = "CE-Dankao";
@@ -28,8 +28,11 @@ const int server_port = 8002;
 const char* server_path = "/ws";
 
 // 房间配置
-const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
-
+// const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
+// const char* TARGET_ROOM = "bedroom";     // 卧室
+// const char* TARGET_ROOM = "kitchen";     // 厨房
+// const char* TARGET_ROOM = "study";       // 书房
+const char* TARGET_ROOM = "bathroom";    // 浴室
 
 // WebSocket客户端
 WebSocketsClient webSocket;
