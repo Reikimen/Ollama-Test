@@ -49,17 +49,17 @@ active_timers = {}
 device_states = {
     # 天花板灯 - 支持调光和色温
     "ceiling_light": {
-        "living_room": {"status": "off", "brightness": 50, "color_temp": 4000},
-        "bedroom": {"status": "off", "brightness": 50, "color_temp": 3000},
+        "living_room": {"status": "off", "brightness": 100, "color_temp": 4000},
+        "bedroom": {"status": "off", "brightness": 80, "color_temp": 3000},
         "kitchen": {"status": "off", "brightness": 80, "color_temp": 5000},
-        "study": {"status": "off", "brightness": 70, "color_temp": 4500},
-        "bathroom": {"status": "off", "brightness": 60, "color_temp": 4000}
+        "study": {"status": "off", "brightness": 90, "color_temp": 4500},
+        "bathroom": {"status": "off", "brightness": 70, "color_temp": 4000}
     },
     
     # 台灯 - 支持调光和色温
     "desk_lamp": {
-        "bedroom": {"status": "off", "brightness": 40, "color_temp": 2700},
-        "study": {"status": "off", "brightness": 60, "color_temp": 4000}
+        "bedroom": {"status": "off", "brightness": 90, "color_temp": 2700},
+        "study": {"status": "off", "brightness": 80, "color_temp": 4000}
     },
     
     # 风扇 - 支持多档速度和摆动
