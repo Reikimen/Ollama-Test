@@ -17,10 +17,10 @@ class TestCaseGenerator:
         
         # Define devices per room - 根据实际项目配置
         self.devices = {
-            "living_room": ["ceiling_light", "air_conditioner", "fan", "curtain"],
-            "bedroom": ["ceiling_light", "air_conditioner", "fan", "curtain"],
+            "living_room": ["ceiling_light", "ac", "fan", "curtain"],
+            "bedroom": ["ceiling_light", "ac", "fan", "curtain"],
             "kitchen": ["ceiling_light", "exhaust_fan"],
-            "study": ["ceiling_light", "desk_lamp", "air_conditioner", "curtain"],
+            "study": ["ceiling_light", "desk_lamp", "ac", "curtain"],
             "bathroom": ["ceiling_light", "exhaust_fan"]
         }
         
@@ -28,7 +28,7 @@ class TestCaseGenerator:
         self.device_actions = {
             "ceiling_light": ["on", "off", "dim", "brighten", "set"],
             "desk_lamp": ["on", "off", "dim", "brighten", "set"],
-            "air_conditioner": ["on", "off", "set", "increase", "decrease"],
+            "ac": ["on", "off", "set_temperature", "increase", "decrease"],
             "fan": ["on", "off", "increase", "decrease", "set"],
             "exhaust_fan": ["on", "off"],
             "curtain": ["open", "close", "set"]
@@ -176,13 +176,13 @@ class TestCaseGenerator:
         ]
         
         for i in range(count):
-            room = random.choice([r for r in self.rooms if "air_conditioner" in self.devices[r]])
+            room = random.choice([r for r in self.rooms if "ac" in self.devices[r]])
             template = random.choice(templates)
             
             # Determine action and parameters
             if "{temp}" in template:
                 temp = random.choice(self.temperatures)
-                action = "set"
+                action = "set_temperature"
                 command = template.format(
                     room=room.replace("_", " "),
                     temp=temp
@@ -212,7 +212,7 @@ class TestCaseGenerator:
             test_cases.append({
                 "id": f"temperature_{i+1:03d}",
                 "input": command,
-                "expected_devices": ["air_conditioner"],
+                "expected_devices": ["ac"],
                 "expected_locations": [room],
                 "expected_actions": [action],
                 "expected_parameters": parameters,
@@ -263,8 +263,8 @@ class TestCaseGenerator:
                     devices.append("ceiling_light")
                     actions.append("on")
                     locations.append(room)
-                if "air_conditioner" in available_devices:
-                    devices.append("air_conditioner")
+                if "ac" in available_devices:
+                    devices.append("ac")
                     actions.append("on")
                     locations.append(room)
                 command = template.format(room=room.replace("_", " "))
@@ -347,8 +347,13 @@ class TestCaseGenerator:
                 ]
             },
             "sleep": {
-                "devices": ["ceiling_light", "air_conditioner", "curtain"],
-                "actions": ["off", "set", "close"],
+                "devices": ["ceiling_light", "ac", "curtain"],
+                "actions": ["off", "set_temperature", "close"],
+                "parameters": [
+                    {},
+                    {"temperature": 23},
+                    {}
+                ],
                 "templates": [
                     "Good night",
                     "I'm going to sleep",
@@ -379,8 +384,13 @@ class TestCaseGenerator:
                 ]
             },
             "work": {
-                "devices": ["ceiling_light", "desk_lamp", "air_conditioner"],
-                "actions": ["on", "on", "set"],
+                "devices": ["ceiling_light", "desk_lamp", "ac"],
+                "actions": ["on", "on", "set_temperature"],
+                "parameters": [
+                    {},
+                    {},
+                    {"temperature": 24}
+                ],
                 "templates": [
                     "Work mode",
                     "Time to work",
@@ -411,8 +421,12 @@ class TestCaseGenerator:
                 ]
             },
             "relax": {
-                "devices": ["ceiling_light", "air_conditioner"],
-                "actions": ["dim", "set"],
+                "devices": ["ceiling_light", "ac"],
+                "actions": ["dim", "set_temperature"],
+                "parameters": [
+                    {},
+                    {"temperature": 25}
+                ],
                 "templates": [
                     "Relax mode",
                     "Time to relax",
@@ -501,7 +515,7 @@ class TestCaseGenerator:
                     "I'm sweating",
                     "Need some cooling"
                 ],
-                "device": "air_conditioner",
+                "device": "ac",
                 "action": "on"
             },
             {
@@ -517,7 +531,7 @@ class TestCaseGenerator:
                     "Need some warmth",
                     "It's arctic in here"
                 ],
-                "device": "air_conditioner",
+                "device": "ac",
                 "action": "increase"
             },
             # Lighting related
@@ -740,21 +754,28 @@ class TestCaseGenerator:
                     devices.append("ceiling_light")
                     actions.append("off")
                     locations.append(room)
-                if "air_conditioner" in self.devices[room]:
-                    devices.append("air_conditioner")
-                    actions.append("set")
+                if "ac" in self.devices[room]:
+                    devices.append("ac")
+                    actions.append("set_temperature")
                     locations.append(room)
             elif "{temp}" in template:
-                room = random.choice([r for r in self.rooms if "air_conditioner" in self.devices[r]])
+                room = random.choice([r for r in self.rooms if "ac" in self.devices[r]])
                 temp = random.choice(self.temperatures)
                 command = template.format(room=room.replace("_", " "), temp=temp)
-                devices = ["ceiling_light", "air_conditioner"]
-                actions = ["on", "set"]
+                devices = ["ceiling_light", "ac"]
+                actions = ["on", "set_temperature"]
                 locations = [room, room]
             elif "all bedroom and living room" in template:
                 devices = ["ceiling_light", "ceiling_light"]
                 actions = ["on", "on"]
                 locations = ["bedroom", "living_room"]
+                command = template
+            elif "Set all ACs" in template:
+                # Find all rooms with AC
+                ac_rooms = [r for r in self.rooms if "ac" in self.devices[r]]
+                devices = ["ac"] * len(ac_rooms)
+                actions = ["set_temperature"] * len(ac_rooms)
+                locations = ac_rooms
                 command = template
             elif "everything except" in template:
                 room = random.choice(self.rooms)
