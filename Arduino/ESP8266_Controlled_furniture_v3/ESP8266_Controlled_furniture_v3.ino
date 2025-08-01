@@ -23,16 +23,16 @@ const char* password = "ThanksDankao";
 
 // 服务器配置
 // const char* server_host = "192.168.153.177";
-const char* server_host = "192.168.8.198";
+const char* server_host = "192.168.8.194";
 const int server_port = 8002;
 const char* server_path = "/ws";
 
 // 房间配置
 // const char* TARGET_ROOM = "living_room";  // 修改这里指定目标房间
 // const char* TARGET_ROOM = "bedroom";     // 卧室
-// const char* TARGET_ROOM = "kitchen";     // 厨房
+const char* TARGET_ROOM = "kitchen";     // 厨房
 // const char* TARGET_ROOM = "study";       // 书房
-const char* TARGET_ROOM = "bathroom";    // 浴室
+// const char* TARGET_ROOM = "bathroom";    // 浴室
 
 // WebSocket客户端
 WebSocketsClient webSocket;

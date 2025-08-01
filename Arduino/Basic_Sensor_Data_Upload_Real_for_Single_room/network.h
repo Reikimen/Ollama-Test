@@ -8,7 +8,7 @@ const char* password = "ThanksDankao";
 
 // 服务器配置
 // const char* server_host = "10.129.113.188";
-const char* server_host = "192.168.8.198";
+const char* server_host = "192.168.8.194";
 const int server_port = 8002; // IoT服务端口
 const char* server_path = "/ws";
 

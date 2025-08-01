@@ -88,6 +88,37 @@ services:
     networks:
       - ai-assistant-network
 
+  # 测试运行服务（新增）
+  test-runner:
+    build:
+      context: .
+      dockerfile: ./Test/Dockerfile
+    container_name: ai-assistant-test-runner
+    volumes:
+      # 挂载整个Test目录
+      - ./Test:/app
+      # 共享音频数据目录
+      - ./data/audio:/app/data/audio
+      # 结果输出目录
+      - ./Test/results:/app/results
+    networks:
+      - ai-assistant-network  # 修正：使用正确的网络名称
+    depends_on:
+      - coordinator
+      - ollama
+      - stt-service  # 修正：使用正确的服务名称
+      - tts-service  # 修正：使用正确的服务名称
+      - iot-control  # 修正：使用正确的服务名称
+    environment:
+      - COORDINATOR_URL=http://coordinator:8080
+      - STT_URL=http://stt-service:8000
+      - TTS_URL=http://tts-service:8001
+      - IOT_URL=http://iot-control:8002
+      - PYTHONUNBUFFERED=1
+    # 保持容器运行，可以随时进入执行测试
+    command: tail -f /dev/null
+    restart: unless-stopped
+
 networks:
   ai-assistant-network:
     driver: bridge
