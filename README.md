@@ -7,298 +7,149 @@
 
 > **Edge Computing and Large Language Model (LLMs) Powered Semantic Frameworks for Connected Smart Homes**
 
-This project demonstrates a novel smart home framework that leverages Large Language Models (LLMs) and edge computing to enable understanding and processing of user semantics, significantly outperforming traditional rule-based methods in terms of intent extraction performance and user satisfaction.
+<div style="text-align: center;">
+  <img src="assert/Img/Readme/Overview-Showcase.png" width="2000">
+</div>
+This project proposed a smart home semantic understanding framework that enables natural language interactions through edge computing and LLMs, facilitating a paradigm shift from command-based control to conversational interaction. The framework enabling low-computing-power IoT devices to engage in complex semantic interactions through computational offloading. The system achieves:
 
-## 🏗️ System Architecture
-
-The system consists of **5 microservices** running in Docker containers, designed for collaboration between low-power devices (ESP32) and PC-side Docker containers:
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   ESP32 Device  │    │   Edge Computer   │    │  Web Interface  │
-│                 │    │   (Docker Host)   │    │                 │
-│ • Audio I/O     │◄──►│ • Ollama (LLM)    │◄──►│ • User Mode     │
-│ • LCD Display   │    │ • STT Service     │    │ • Developer     │
-│ • IoT Control   │    │ • TTS Service     │    │ • Real-time     │
-│ • Sensors       │    │ • IoT Controller  │    │   Monitoring    │
-└─────────────────┘    │ • Coordinator     │    └─────────────────┘
-                       └──────────────────┘
-```
-
-### Core Services
-
-1. **🧠 Ollama Service** - LLM processing for natural language understanding
-2. **🎤 STT Service** - Speech-to-Text using OpenAI Whisper
-3. **🔊 TTS Service** - Text-to-Speech using Microsoft Edge TTS
-4. **🏠 IoT Controller** - Smart device management and automation
-5. **🎯 Coordinator** - Central orchestration and semantic processing
+- **94%** accuracy in standard command recognition
+- **91%** accuracy in fault-tolerant testing
+- **96.9%** accuracy in distinguishing commands from non-commands
 
 ## ✨ Key Features
 
 ### 🚀 Advanced AI Capabilities
+
 - **Intent-based Interaction**: Move beyond command-based to natural conversation
 - **Semantic Understanding**: Advanced LLM-powered context awareness
 - **Multi-language Support**: English and Chinese voice commands
 - **Scene Intelligence**: Automated environment optimization
 
 ### 🏡 Comprehensive Smart Home Control
+
 - **Multi-room Support**: Living room, bedroom, kitchen, study, bathroom
 - **Device Categories**: Lighting, HVAC, fans, curtains, sensors
 - **Environmental Monitoring**: Temperature, humidity, CO2, VOC, light levels
 - **Real-time Updates**: WebSocket-based live status monitoring
 
 ### 🖥️ Dual Interface Modes
-- **👤 User Mode**: Intuitive interface for daily home control
-- **⚙️ Developer Mode**: Advanced testing and debugging tools
+
+- **User Mode**: Intuitive interface for daily home control
+- **Developer Mode**: Advanced testing and debugging tools
 
 ### 🔧 Hardware Integration
+
 - **ESP32 Ecosystem**: Audio processing, display control, sensor integration
 - **Scalable Architecture**: Easy addition of new devices and rooms
 - **Edge Processing**: Reduced latency and enhanced privacy
 
-## 🛠️ Technology Stack
+## 🎯 Overview
 
-### Backend Services
-- **Python 3.10+** with FastAPI framework
-- **Docker & Docker Compose** for containerization
-- **WebSocket** for real-time communication
-- **RESTful APIs** for service integration
+### Demo Video
 
-### AI & Voice Processing
-- **Ollama** - Local LLM deployment (Llama 3)
-- **OpenAI Whisper** - Speech recognition
-- **Microsoft Edge TTS** - Speech synthesis
+<div align="center">
+  <a href="https://www.bilibili.com/video/BV1gSuSzvERY/?spm_id_from=333.1387.homepage.video_card.click&vd_source=d29a5e7864f6cf00667f0891671f69c8">
+    <img src="assert/Img/Readme/BillBill.jpeg" alt="Watch the demo" width="600">
+  </a>
+  <br>
+  <em>Click to watch the full demonstration on Bilibili</em>
+</div>
 
-### Hardware Platform
-- **ESP32** microcontrollers
-- **I2S Audio** for high-quality voice processing
-- **LCD Displays** for visual feedback
-- **Environmental Sensors** (CO2, VOC, temperature, humidity)
+### Website (User Mode)
 
-### Frontend
-- **HTML5/CSS3/JavaScript** with Bootstrap 5
-- **Real-time WebSocket** connections
-- **Responsive Design** for mobile and desktop
+<div style="text-align: center;">
+  <img src="assert/Img/Readme/web-user.png" width="2000">
+</div>
+### Website (Developer Mode)
+
+<div style="text-align: center;">
+  <img src="assert/Img/Readme/web-overview-developer.png" width="2000">
+</div>
+
+### Voice Assistant (Reiki)
+
+<div align="center">
+  <img src="assert/Img/Readme/Hardware-apart.jpg" width="48%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assert/Img/Readme/Hardware-whole.jpg" width="48%" />
+</div>
+
+
+## 🏗️ System Architecture
+
+The system consists of **5 microservices** running in Docker containers, designed for collaboration between low-power devices (ESP32) and PC-side Docker containers:
+
+<div style="text-align: center;">
+  <img src="assert/Img/Readme/Framework-New.jpg" width="800">
+</div>
+
+### 🎯 Core Services
+
+| Service       | Port  | Purpose                                           | Health Check |
+| ------------- | ----- | ------------------------------------------------- | ------------ |
+| 🎯 Coordinator | 8080  | Central orchestration                             | `GET /`      |
+| 🎤 STT         | 8000  | Speech-to-Text using OpenAI Whisper               | `GET /`      |
+| 🔊 TTS         | 8001  | Text-to-Speech using Microsoft Edge TTS           | `GET /`      |
+| 🏠 IoT         | 8002  | Smart device management                           | `GET /`      |
+| 🧠 LLM         | 11434 | LLM processing for natural language understanding | `GET /`      |
 
 ## 🚀 Quick Start
 
+### Hardware Repo
+
+https://github.com/Reikimen/SmartHome-Hardware
+
 ### Prerequisites
+
 - Docker and Docker Compose
+
 - 8GB+ RAM recommended
+
 - Network access for initial model downloads
 
-### 1. Clone the Repository
+### Deploy Procedure
+
+**Clone the repository**
+
 ```bash
-git clone https://github.com/yourusername/ai-smart-home-assistant.git
-cd ai-smart-home-assistant
+git clone https://github.com/Reikimen/SmartHome-Docker-LLM.git
+cd SmartHome-Docker-LLM
 ```
 
-### 2. Start the System
-```bash
-# Build and start all services
-docker-compose up --build
+**Deploy services using Docker Compose**
 
-# Or run in background
+```bash
 docker-compose up -d --build
 ```
 
-### 3. Access the Interface
-- **User Interface**: http://localhost:1145
-- **Developer Console**: http://localhost:1145/developer.html
-- **API Coordinator**: http://localhost:8080
-
-### 4. Configure ESP32 (Optional)
-```cpp
-// Update WiFi credentials in ESP32 code
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* server_ip = "YOUR_DOCKER_HOST_IP";
-```
-
-## 📋 Service Endpoints
-
-| Service | Port | Purpose | Health Check |
-|---------|------|---------|--------------|
-| Coordinator | 8080 | Central orchestration | `GET /` |
-| STT Service | 8000 | Speech recognition | `GET /` |
-| TTS Service | 8001 | Speech synthesis | `GET /` |
-| IoT Control | 8002 | Device management | `GET /` |
-| Ollama | 11434 | LLM processing | `GET /` |
-
-### Key API Examples
+**Access the web interface**
 
 ```bash
-# Process text command
-curl -X POST http://localhost:8080/process_text \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Turn on the living room lights"}'
-
-# Control IoT device
-curl -X POST http://localhost:8002/control \
-  -H "Content-Type: application/json" \
-  -d '{"commands": [{"device": "ceiling_light", "action": "on", "location": "living_room"}]}'
-
-# Execute scene mode
-curl -X POST http://localhost:8080/execute_scene \
-  -H "Content-Type: application/json" \
-  -d '{"scene_name": "sleep_mode", "location": "bedroom"}'
+cd web
+chmod +x start-web.sh
+./start-web.sh
 ```
 
-## 🏠 Supported Devices & Scenes
+Or on Ubuntu 18.0:
 
-### Device Types
-- **Lighting**: Ceiling lights, desk lamps with brightness/color control
-- **Climate**: Air conditioners with temperature and mode control
-- **Ventilation**: Fans and exhaust fans with speed control
-- **Window Treatments**: Curtains with position control
-- **Sensors**: Environmental monitoring (temperature, humidity, air quality)
-
-### Scene Modes
-- **🏠 Home Mode**: Welcome lighting and comfort settings
-- **😴 Sleep Mode**: Dimmed lights, optimal temperature, closed curtains
-- **💼 Work Mode**: Bright lighting, focused environment
-- **🎬 Movie Mode**: Ambient lighting, closed curtains
-- **👨‍🍳 Cooking Mode**: Bright kitchen lighting, auto ventilation
-- **🚗 Away Mode**: Security settings, energy saving
-
-### Voice Command Examples
-```
-English:
-- "Turn on the living room lights"
-- "Set bedroom temperature to 24 degrees"
-- "Execute sleep mode"
-- "Open the curtains halfway"
-
-Chinese:
-- "打开客厅的灯"
-- "把卧室温度调到24度"
-- "执行睡眠模式"
-- "窗帘开一半"
-
-Mixed:
-- "Turn on 客厅的灯"
-- "Set 卧室 temperature to 24度"
-```
-
-## 🔧 Configuration
-
-### Environment Variables
 ```bash
-# Ollama Configuration
-OLLAMA_MODEL=llama3:8b
-OLLAMA_HOST=ollama
-OLLAMA_PORT=11434
-
-# Service Hosts
-STT_HOST=stt-service
-TTS_HOST=tts-service
-IOT_HOST=iot-control
-
-# Audio Settings
-WHISPER_MODEL=base
-TTS_VOICE=en-US-AriaNeural
+cd web
+chmod +x start-web-python.sh
+./start-web-python.sh
 ```
 
-### Custom Device Configuration
-Add new device types in `services/iot/app.py`:
-```python
-device_states = {
-    "your_device_type": {
-        "room_name": {"status": "off", "custom_property": "value"}
-    }
-}
-```
+**Initialize LLM model** (First time only)
 
-## 📊 Monitoring & Debugging
+- Access Developer Mode in the web interface
+- Navigate to "Dynamic Model Management Module"
+- Enter your preferred LLM model in "Quick Model Download"
+- Wait 2-10 minutes for download completion
 
-### Health Checks
+**Stop services**
+
 ```bash
-# Check all services status
-curl http://localhost:8080/health
-
-# Individual service checks
-curl http://localhost:8000/  # STT
-curl http://localhost:8001/  # TTS
-curl http://localhost:8002/  # IoT
-curl http://localhost:11434/ # Ollama
+docker-compose down
 ```
-
-### Logs & Debugging
-```bash
-# View service logs
-docker-compose logs coordinator
-docker-compose logs stt-service
-docker-compose logs -f --tail=100
-
-# Access developer tools
-# Visit http://localhost:1145/developer.html
-```
-
-## 🧪 Testing
-
-### Voice Recognition Test
-```javascript
-// Browser console
-testSTTUpload()        // Test file upload
-testSTTRecord()        // Test live recording
-testSTTWithSample()    // Test with generated audio
-```
-
-### IoT Control Test
-```javascript
-// Execute scene modes
-executeSceneFromDev('sleep_mode')
-executeSceneFromDev('work_mode')
-
-// Individual device control
-sendIoTCommand()
-```
-
-## 📈 Performance Optimization
-
-### Model Selection
-Choose the appropriate Whisper model based on your hardware:
-- `tiny` - Fastest, lower accuracy (39 MB)
-- `base` - Balanced performance (74 MB) **[Recommended]**
-- `small` - Higher accuracy (244 MB)
-- `medium` - Best accuracy (769 MB)
-
-### Resource Usage
-- **Minimum**: 4GB RAM, 2 CPU cores
-- **Recommended**: 8GB RAM, 4 CPU cores
-- **Storage**: 10GB+ for models and data
-
-## 🔒 Security Considerations
-
-- **Network Isolation**: Services communicate through internal Docker network
-- **No External Dependencies**: Fully self-contained system
-- **Voice Data**: Processed locally, not sent to cloud services
-- **Privacy**: All user interactions remain on local network
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### Development Setup
-```bash
-# Clone repository
-git clone https://github.com/yourusername/ai-smart-home-assistant.git
-cd ai-smart-home-assistant
-
-# Create development environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest tests/
-```
-
-## 📖 Research Background
-
-This project is part of UCL CASA dissertation research on "Edge Computing and Large Language Model (LLMs) Powered Semantic Frameworks for Connected Smart Homes."
-
-**Research Hypothesis**: The smart home framework based on LLM and edge computing enables understanding and processing of user semantics, significantly outperforming traditional rule-based methods in terms of intent extraction performance and user satisfaction.
 
 ## 📄 License
 
