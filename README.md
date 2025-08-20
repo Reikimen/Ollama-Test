@@ -60,6 +60,7 @@ This project proposed a smart home semantic understanding framework that enables
 <div style="text-align: center;">
   <img src="assert/Img/Readme/web-user.png" width="2000">
 </div>
+
 ### Website (Developer Mode)
 
 <div style="text-align: center;">
