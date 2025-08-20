@@ -10,7 +10,7 @@
 <div style="text-align: center;">
   <img src="assert/Img/Readme/Overview-Showcase.png" width="2000">
 </div>
-This project proposed a smart home semantic understanding framework that enables natural language interactions through edge computing and LLMs, facilitating a paradigm shift from command-based control to conversational interaction. The framework enabling low-computing-power IoT devices to engage in complex semantic interactions through computational offloading. The system achieves:
+This project proposed a smart home semantic understanding framework that enables natural language interactions through edge computing and LLMs, facilitating a paradigm shift from command-based control to conversational interaction. The system achieves:
 
 - **94%** accuracy in standard command recognition
 - **91%** accuracy in fault-tolerant testing
@@ -55,6 +55,26 @@ This project proposed a smart home semantic understanding framework that enables
   <em>Click to watch the full demonstration on Bilibili</em>
 </div>
 
+### System Model
+
+<div align="center">
+  <img src="assert/Img/Readme/Overview-Plain-Design.jpg" width="44%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assert/Img/Readme/Overview-Roughcast.jpg" width="48%" />
+  <br><br>
+  <img src="assert/Img/Readme/Overview-upsidedown.JPG" width="48%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assert/Img/Readme/Overview.jpg" width="44%" />
+</div>
+
+### Voice Assistant (Reiki)
+
+<div align="center">
+  <img src="assert/Img/Readme/Hardware-apart.jpg" width="48%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assert/Img/Readme/Hardware-whole.jpg" width="48%" />
+</div>
+
 ### Website (User Mode)
 
 <div style="text-align: center;">
@@ -66,15 +86,6 @@ This project proposed a smart home semantic understanding framework that enables
 <div style="text-align: center;">
   <img src="assert/Img/Readme/web-overview-developer.png" width="2000">
 </div>
-
-### Voice Assistant (Reiki)
-
-<div align="center">
-  <img src="assert/Img/Readme/Hardware-apart.jpg" width="48%" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assert/Img/Readme/Hardware-whole.jpg" width="48%" />
-</div>
-
 
 ## 🏗️ System Architecture
 
