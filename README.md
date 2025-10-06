@@ -1,6 +1,6 @@
 # AI Smart Home Assistant with Edge Computing
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-supported-blue.svg)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://espressif.com/)
@@ -175,7 +175,7 @@ Click to access: [Documentation](https://github.com/ReikiC/SmartHome-Docker-LLMs
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0  - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
