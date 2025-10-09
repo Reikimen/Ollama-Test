@@ -56,6 +56,7 @@ OLLAMA_SCHEME = "http"
 # Remote API configuration (protected by .env)
 REMOTE_API_URL = os.getenv("REMOTE_API_URL", "")  # 可通过 .env 覆盖
 REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "")  # Must be set in .env
+REMOTE_API_MODEL_LIST = ["llama3.2:3b", "llama3.1:70b", "gemma2:latest", "gemma3:latest","llama3:8b","gpt-5-ca","gpt-4-turbo","gpt-4o-mini","gpt-5"]  # Example models, replace with actual supported models
 
 # Other services configuration
 STT_HOST = "stt-service"
@@ -262,7 +263,40 @@ class EnhancedModelManager:
         try:
             if self.current_mode == APIMode.REMOTE_API:
                 # API模式：返回预定义的模型列表
-                self.available_models = ["llama3.2:3b", "llama3.1:70b", "gemma2:latest", "gemma3:latest","llama3:8b"]
+                try:
+                    models_url = REMOTE_API_URL.replace('/chat/completions', '/models')
+                    
+                    response = requests.get(models_url, headers=self.api_headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        # 解析不同格式的响应
+                        if isinstance(data, dict) and "data" in data:
+                            models_data = data["data"]
+                        elif isinstance(data, dict) and "models" in data:
+                            models_data = data["models"]
+                        else:
+                            models_data = []
+                        
+                        # 提取模型名称
+                        self.available_models = []
+                        for m in models_data:
+                            model_name = m.get("id") or m.get("name") if isinstance(m, dict) else str(m)
+                            if model_name:
+                                self.available_models.append(model_name)
+                        
+                        if self.available_models:
+                            logger.info(f"📋 Fetched {len(self.available_models)} models from API")
+                        else:
+                            raise Exception("No models returned from API")
+                    else:
+                        raise Exception(f"HTTP {response.status_code}")
+                        
+                except Exception as e:
+                    # 失败时使用备用列表
+                    logger.warning(f"⚠️ Failed to get models from API ({e}), using fallback list")
+                    self.available_models = REMOTE_API_MODEL_LIST
+   
                 
                 # 设置模型信息
                 for model in self.available_models:
@@ -1682,7 +1716,7 @@ async def websocket_endpoint(websocket: WebSocket):
 async def test_model_functionality(model_name: str):
     """测试模型是否正常工作"""
     try:
-        test_prompt = "Hello, this is a test message. Please respond with 'Model test successful' if you can understand this."
+        test_prompt = "Hello, this is a test message. Please respond with 'Model test successful'."
         
         if model_manager.current_mode == APIMode.REMOTE_API:
             # API mode test

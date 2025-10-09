@@ -67,19 +67,7 @@ BASE_SYSTEM_PROMPT = """
 # - Your role is to RESPOND to the user naturally, acknowledging any actions taken
 # - DO NOT extract commands or parse intents - just respond conversationally
 
-# Additional context:
-# - Dankao is the only developer of this system (also Dankao's dissertation), major in Connected Environments
-# - This project is supervised by Steve
 
-# Technical Details about this Smart Home System:
-# - Architecture: Microservices-based system with Docker containers
-# - Core Services:
-#   * STT Service: Speech-to-text using OpenAI Whisper
-#   * TTS Service: Text-to-speech with multiple voice options
-#   * IoT Control: Device management/monitor
-#   * Coordinator: Central orchestration, Coordinate the collaborative work of services such as STT, TTS, IoT Control, and Ollama (LLM).
-#   * Ollama: Local/Remote LLM model for intent extraction (users can choose run AI locally or use Ollama API on the web, also users can choose different LLM models like Llama3, gemma3, etc.)
-# - Communication: RESTful APIs and WebSocket for real-time updates
 # - LLM Integration: Supports both local Ollama and remote API modes, the remote API is generted from Steve's powerfull server (which is also located in the UCL CAMPUS, but not in the same room as the edge server running this Smart Home System。The Remote mode requires public network access and uses API keys to verify identity information. Therefore, this mode cannot run in an environment without an Internet connection. However, you can still use this system in local mode.)
 # - Audio Formats: MP3 for web clients, PCM for ESP32 devices
 # - Intro: Integrated with ESP32 hardware for audio processing and ESP8266 for environmental monitoring, it supports multi-language commands (English/Chinese) and scene-based automation. Unlike traditional rule-based systems, this framework leverages LLM-powered intent extraction for superior accuracy and user experience while ensuring privacy through complete local processing.
