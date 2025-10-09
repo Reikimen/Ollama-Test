@@ -54,7 +54,7 @@ OLLAMA_PORT = "11434"
 OLLAMA_SCHEME = "http"
 
 # Remote API configuration (protected by .env)
-REMOTE_API_URL = "https://chat.cetools.org/api/chat/completions"
+REMOTE_API_URL = os.getenv("REMOTE_API_URL", "")  # 可通过 .env 覆盖
 REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "")  # Must be set in .env
 
 # Other services configuration
