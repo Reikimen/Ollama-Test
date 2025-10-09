@@ -8,7 +8,7 @@ python-multipart==0.0.6
 fastapi-cors==0.0.6
 
 # TTS engine
-edge-tts==6.1.9
+edge-tts==6.1.12
 
 # Audio processing
 pydub==0.25.1
