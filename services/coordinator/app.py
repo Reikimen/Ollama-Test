@@ -543,7 +543,7 @@ async def process_with_llm(text_input: str, context: Dict = None, location: str 
             response = requests.post(
                 f"{OLLAMA_ENDPOINT}/api/generate",
                 json=payload,
-                timeout=30
+                timeout=60
             )
             
             if response.status_code == 200:
