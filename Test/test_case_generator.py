@@ -33,12 +33,30 @@ class TestCaseGenerator:
             "exhaust_fan": ["on", "off"],
             "curtain": ["open", "close", "set"]
         }
-        
+         
+        self.room_display_names = {
+            "living_room": "living room",
+            "bedroom": "bedroom",
+            "kitchen": "kitchen",
+            "bathroom": "bathroom",
+            "study": "study room",  # 关键修改
+            "balcony": "balcony"
+        }
+            
         # Temperature settings for air conditioner
         self.temperatures = list(range(18, 31))
         
         # Brightness levels
         self.brightness_levels = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"]
+    
+    def get_room_display_name(self, room: str) -> str:
+        """Return a user-friendly room display name."""
+        return self.room_display_names.get(room, room.replace("_", " "))
+
+    def format_command_with_room(self, template: str, room: str, **kwargs) -> str:
+        """Format a command template using the room display name."""
+        room_display = self.get_room_display_name(room)
+        return template.format(room=room_display, **kwargs)
         
     def generate_simple_light_commands(self, count: int = 100) -> List[Dict]:
         """Generate simple light control commands"""
@@ -73,7 +91,7 @@ class TestCaseGenerator:
             else:
                 action_verb = "turn off"
                 
-            room_name = room.replace("_", " ")
+            room_name = self.get_room_display_name(room)
             device_name = device.replace("_", " ")
             
             command = template.format(
@@ -123,9 +141,9 @@ class TestCaseGenerator:
             # Determine action and parameters
             if "{level}" in template:
                 level = random.choice(self.brightness_levels)
-                action = "set"
+                action = "set_brightness"
                 command = template.format(
-                    room=room.replace("_", " "),
+                    room=self.get_room_display_name(room),
                     device=device.replace("_", " "),
                     level=level
                 )
@@ -136,7 +154,7 @@ class TestCaseGenerator:
                 else:
                     action = "brighten"
                 command = template.format(
-                    room=room.replace("_", " "),
+                    room=self.get_room_display_name(room),
                     device=device.replace("_", " ")
                 )
                 parameters = {}
@@ -184,29 +202,29 @@ class TestCaseGenerator:
                 temp = random.choice(self.temperatures)
                 action = "set_temperature"
                 command = template.format(
-                    room=room.replace("_", " "),
+                    room=self.get_room_display_name(room),
                     temp=temp
                 )
                 parameters = {"temperature": temp}
             elif "turn on" in template.lower() or "start" in template.lower():
                 action = "on"
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 parameters = {}
             elif "turn off" in template.lower():
                 action = "off"
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 parameters = {}
             elif "cooler" in template.lower() or "cool down" in template.lower() or "too hot" in template.lower():
                 action = "decrease"
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 parameters = {}
             elif "warmer" in template.lower() or "warm up" in template.lower() or "too cold" in template.lower():
                 action = "increase"
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 parameters = {}
             else:
                 action = "on"
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 parameters = {}
             
             test_cases.append({
@@ -249,12 +267,12 @@ class TestCaseGenerator:
                 devices = [d for d in available_devices if "light" in d or "lamp" in d]
                 actions = ["off"] * len(devices)
                 locations = [room] * len(devices)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
             elif "everything" in template:
                 devices = available_devices.copy()
                 actions = ["off"] * len(devices)
                 locations = [room] * len(devices)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
             elif "lights and air conditioner" in template:
                 devices = []
                 actions = []
@@ -267,7 +285,7 @@ class TestCaseGenerator:
                     devices.append("ac")
                     actions.append("on")
                     locations.append(room)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
             elif "for sleep" in template:
                 devices = []
                 actions = []
@@ -284,7 +302,7 @@ class TestCaseGenerator:
                     devices.append("curtain")
                     actions.append("close")
                     locations.append(room)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
             elif "{device1}" in template and "{device2}" in template:
                 if len(available_devices) >= 2:
                     device1, device2 = random.sample(available_devices, 2)
@@ -296,7 +314,7 @@ class TestCaseGenerator:
                         actions = ["on", "on"]
                     locations = [room, room]
                     command = template.format(
-                        room=room.replace("_", " "),
+                        room=self.get_room_display_name(room),
                         device1=device1.replace("_", " "),
                         device2=device2.replace("_", " ")
                     )
@@ -678,7 +696,7 @@ class TestCaseGenerator:
             # Fill in placeholders if needed
             if "{room}" in template:
                 room = random.choice(self.rooms)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
             elif "{device}" in template:
                 room = random.choice(self.rooms)
                 device = random.choice(self.devices[room])
@@ -746,7 +764,7 @@ class TestCaseGenerator:
             # Process based on template type
             if "sleep mode" in template:
                 room = random.choice([r for r in self.rooms if "bedroom" in r or r == "bedroom"] or self.rooms)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 devices = []
                 actions = []
                 locations = []
@@ -761,7 +779,7 @@ class TestCaseGenerator:
             elif "{temp}" in template:
                 room = random.choice([r for r in self.rooms if "ac" in self.devices[r]])
                 temp = random.choice(self.temperatures)
-                command = template.format(room=room.replace("_", " "), temp=temp)
+                command = template.format(room=self.get_room_display_name(room), temp=temp)
                 devices = ["ceiling_light", "ac"]
                 actions = ["on", "set_temperature"]
                 locations = [room, room]
@@ -779,7 +797,7 @@ class TestCaseGenerator:
                 command = template
             elif "everything except" in template:
                 room = random.choice(self.rooms)
-                command = template.format(room=room.replace("_", " "))
+                command = template.format(room=self.get_room_display_name(room))
                 devices = []
                 actions = []
                 locations = []
@@ -794,7 +812,7 @@ class TestCaseGenerator:
                 room = random.choice(self.rooms)
                 device = random.choice(self.devices[room])
                 command = template.format(
-                    room=room.replace("_", " "),
+                    room=self.get_room_display_name(room),
                     device=device.replace("_", " ")
                 )
                 devices = [device]
