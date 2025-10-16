@@ -46,6 +46,19 @@ services:
     networks:
       - ai-assistant-network
 
+  # 6. Web UI - static frontend served by nginx
+  web:
+    image: nginx:alpine
+    container_name: ai-assistant-web
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "1145:80"
+    restart: unless-stopped
+    networks:
+      - ai-assistant-network
+
   # ffmpeg helper service: pulled image for environments where building/downloading ffmpeg is slow
   ffmpeg:
     image: jrottenberg/ffmpeg:4.4-ubuntu2004
