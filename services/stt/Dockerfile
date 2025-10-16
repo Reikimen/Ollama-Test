@@ -1,13 +1,22 @@
-FROM python:3.10-slim
+FROM python:3.10-slim as base
 
 WORKDIR /app
 
-# 安装系统依赖
+# Copy ffmpeg binary from a dedicated ffmpeg image to avoid apt downloads (works better in China)
+FROM jrottenberg/ffmpeg:4.4-ubuntu2004 as ffmpeg
+
+FROM base
+
+# Copy only the ffmpeg binaries we need from the ffmpeg image
+COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+
+# 安装系统依赖（不包含 ffmpeg）
+# Keep this minimal to avoid large builds in restricted networks
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    ca-certificates \
     wget \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* || (apt-get update && apt-get install -y --no-install-recommends ca-certificates wget --fix-missing -o Acquire::Retries=3 && rm -rf /var/lib/apt/lists/*)
 
 # 安装Python依赖
 COPY requirements.txt .

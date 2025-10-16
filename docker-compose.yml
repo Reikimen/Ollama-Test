@@ -46,6 +46,14 @@ services:
     networks:
       - ai-assistant-network
 
+  # ffmpeg helper service: pulled image for environments where building/downloading ffmpeg is slow
+  ffmpeg:
+    image: jrottenberg/ffmpeg:4.4-ubuntu2004
+    container_name: ai-assistant-ffmpeg
+    restart: "no"
+    networks:
+      - ai-assistant-network
+
   # 4. IoT控制服务
   iot-control:
     build:
