@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import edge_tts
 from pydub import AudioSegment
 import numpy as np
+from gtts import gTTS
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
 TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")
 OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "mp3")
+TTS_ENGINE = os.getenv("TTS_ENGINE", "gtts")  # options: 'gtts', 'edge', 'auto'
 
 # Create audio directory
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -131,16 +133,75 @@ async def synthesize_speech(request: TTSRequest):
         timestamp = int(time.time())
         filename = f"tts_{timestamp}.{request.format}"
         file_path = os.path.join(AUDIO_DIR, filename)
-        
-        communicate = edge_tts.Communicate(request.text, request.voice)
-        await communicate.save(file_path)
-        
-        logger.info(f"Speech synthesized: {file_path}")
-        
+
+        # choose engine
+        engine = TTS_ENGINE.lower()
+
+        # helper that will attempt synth
+        async def _synthesize(engine_choice: str) -> None:
+            if engine_choice == 'edge':
+                communicate = edge_tts.Communicate(request.text, request.voice)
+                await communicate.save(file_path)
+                logger.info(f"Speech synthesized with edge-tts: {file_path}")
+
+            elif engine_choice == 'gtts':
+                tmp_mp3 = f"{file_path}.gtts.mp3"
+                # gTTS uses language codes like 'en', use English by default when mapping
+                lang = 'en'
+                try:
+                    # try to infer language from voice where possible (simple heuristic)
+                    if request.voice and request.voice.startswith('en-'):
+                        lang = 'en'
+                except Exception:
+                    pass
+
+                tts = gTTS(text=request.text, lang=lang)
+                tts.save(tmp_mp3)
+
+                if request.format.lower() == 'mp3':
+                    os.replace(tmp_mp3, file_path)
+                else:
+                    audio = AudioSegment.from_mp3(tmp_mp3)
+                    audio.export(file_path, format=request.format.lower())
+                    os.remove(tmp_mp3)
+
+                logger.info(f"Speech synthesized with gTTS: {file_path}")
+
+            else:
+                # auto: try edge first, then gTTS
+                try:
+                    communicate = edge_tts.Communicate(request.text, request.voice)
+                    await communicate.save(file_path)
+                    logger.info(f"Speech synthesized with edge-tts: {file_path}")
+                    return
+                except Exception as e:
+                    logger.warning(f"edge-tts synthesis failed: {str(e)}. Trying gTTS fallback...")
+
+                # fallback to gTTS
+                tmp_mp3 = f"{file_path}.gtts.mp3"
+                tts = gTTS(text=request.text, lang='en')
+                tts.save(tmp_mp3)
+                if request.format.lower() == 'mp3':
+                    os.replace(tmp_mp3, file_path)
+                else:
+                    audio = AudioSegment.from_mp3(tmp_mp3)
+                    audio.export(file_path, format=request.format.lower())
+                    os.remove(tmp_mp3)
+                logger.info(f"Speech synthesized with gTTS fallback: {file_path}")
+
+        # run synth
+        if engine == 'gtts':
+            await _synthesize('gtts')
+        elif engine == 'edge':
+            await _synthesize('edge')
+        else:
+            await _synthesize('auto')
+
         return {
             "audio_path": file_path,
             "format": request.format,
-            "voice": request.voice
+            "voice": request.voice,
+            "engine": engine
         }
     
     except Exception as e:
