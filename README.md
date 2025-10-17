@@ -69,6 +69,8 @@ This project proposed a smart home semantic understanding framework that enables
 
 ### Voice Assistant (Reiki)
 
+> A nick name (> - <)
+
 <div align="center">
   <img src="assert/Img/Readme/Hardware-apart.jpg" width="48%" />
   &nbsp;&nbsp;&nbsp;&nbsp;
@@ -89,7 +91,7 @@ This project proposed a smart home semantic understanding framework that enables
 
 ## 🏗️ System Architecture
 
-The system consists of **5 microservices** running in Docker containers, designed for collaboration between low-power devices (ESP32) and PC-side Docker containers:
+The system mainly consists of **5 microservices** running in Docker containers, designed for collaboration between low-power devices (ESP32) and PC-side Docker containers:
 
 <div style="text-align: center;">
   <img src="assert/Img/Readme/Framework-New.jpg" width="800">
@@ -136,7 +138,9 @@ cd SmartHome-Docker-LLM
 docker-compose up -d --build
 ```
 
-**Access the web interface**
+**Access the web interface** 
+
+> Optinal, since the web is covered by docker-compose.
 
 ```bash
 cd web
